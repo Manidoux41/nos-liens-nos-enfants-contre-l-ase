@@ -4,16 +4,28 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:http": "node --experimental-strip-types --test tests/survey-http.mjs",
+    "survey:prune": "node --env-file=.env --experimental-strip-types scripts/prune-survey.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "admin:bootstrap": "node --env-file=.env --experimental-strip-types scripts/bootstrap-admin.mjs"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "better-auth": "1.7.12",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "prisma": "7.10.1",
+    "dotenv": "^17.2.3",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

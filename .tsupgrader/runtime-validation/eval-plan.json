@@ -1,0 +1,53 @@
+{
+  "projectType": "webapp",
+  "setup": [],
+  "assertions": [
+    {
+      "name": "production-build",
+      "kind": "process",
+      "command": "npm",
+      "args": ["run", "build"],
+      "verificationMethod": "exit-code",
+      "expected": "0",
+      "timeoutSeconds": 180
+    },
+    {
+      "name": "eslint-clean",
+      "kind": "process",
+      "command": "npm",
+      "args": ["run", "lint"],
+      "verificationMethod": "exit-code",
+      "expected": "0",
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "tests-pass",
+      "kind": "process",
+      "command": "npm",
+      "args": ["test"],
+      "verificationMethod": "test-results",
+      "expected": "0",
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "production-home",
+      "kind": "http-probe",
+      "startCommand": "npm",
+      "startArgs": ["start", "--", "--port", "3107", "--hostname", "127.0.0.1"],
+      "url": "http://127.0.0.1:3107/",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "production-privacy",
+      "kind": "http-probe",
+      "startCommand": "npm",
+      "startArgs": ["start", "--", "--port", "3108", "--hostname", "127.0.0.1"],
+      "url": "http://127.0.0.1:3108/confidentialite",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 60
+    }
+  ]
+}
