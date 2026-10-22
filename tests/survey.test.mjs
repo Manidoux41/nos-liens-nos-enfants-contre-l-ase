@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { departments, isSurveyAnswer, CONSENT_VERSION, optionLabel, aseOptions } from "../lib/survey.ts";
+import { departments, isSurveyAnswer, CONSENT_VERSION, LEGACY_CONSENT_VERSION, optionLabel, aseOptions } from "../lib/survey.ts";
 import { publishableGroups, validPetitionUrl } from "../lib/statistics.ts";
 import { validCredentials } from "../lib/admin-accounts.ts";
 import { chapters } from "../lib/story.ts";
 
 const answer = (overrides = {}) => ({
   id: randomUUID(), residence: "28", ase: "41", judgeNames: "", socialWorkerNames: "",
-  jurisdiction: "", privateConsent: false, consent: true, consentVersion: CONSENT_VERSION, ...overrides,
+  jurisdiction: "", placementYear: null, returnHome: null, privateConsent: false, consent: true, consentVersion: CONSENT_VERSION, ...overrides,
 });
 
 test("les 101 départements incluent la Corse et l’outre-mer sans doublons", () => {
@@ -46,6 +46,23 @@ test("valeurs invalides et données personnelles supplémentaires refusées", ()
 
 test("seuil public exact : 9 exclu, 10 et 11 inclus, pas de groupe sans libellé", () => {
   assert.deepEqual(publishableGroups([{ label: "Groupe A", count: 9 }, { label: "Groupe B", count: 10 }, { label: "Groupe C", count: 11 }, { label: "", count: 50 }]), [{ label: "Groupe B", count: 10 }, { label: "Groupe C", count: 11 }]);
+});
+
+test("année du premier placement : facultative, entière, bornée et non contradictoire", () => {
+  for (const year of [1900, 2005, new Date().getUTCFullYear(), null]) assert.equal(isSurveyAnswer(answer({ placementYear: year })), true);
+  for (const year of [1899, new Date().getUTCFullYear() + 1, 2000.5, "2020", "", NaN, Infinity]) assert.equal(isSurveyAnswer(answer({ placementYear: year })), false);
+  for (const status of ["ALL", "SOME", "NONE", "UNDISCLOSED", "NOT_APPLICABLE", null]) assert.equal(isSurveyAnswer(answer({ returnHome: status })), true);
+  assert.equal(isSurveyAnswer(answer({ placementYear: 2020, returnHome: "NOT_APPLICABLE" })), false);
+  assert.equal(isSurveyAnswer(answer({ returnHome: "YES" })), false);
+  assert.equal(isSurveyAnswer(answer({ returnHome: false })), false);
+});
+
+test("anciennes contributions acceptées sans enrichissement ni nouveau consentement implicite", () => {
+  const legacy = answer({ consentVersion: LEGACY_CONSENT_VERSION });
+  delete legacy.placementYear; delete legacy.returnHome;
+  assert.equal(isSurveyAnswer(legacy), true);
+  assert.equal(isSurveyAnswer({ ...legacy, placementYear: 2020, returnHome: "ALL" }), false);
+  assert.equal(isSurveyAnswer({ ...legacy, consentVersion: CONSENT_VERSION }), false);
 });
 
 test("pétition : HTTPS uniquement, sans identifiants dans l’URL", () => {

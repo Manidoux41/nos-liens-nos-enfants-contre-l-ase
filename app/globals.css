@@ -315,6 +315,49 @@ textarea { resize: vertical; }
 .notice { padding: 24px; background: #efeee5; border: 1px solid #dedbcd; border-radius: 4px; margin-block: 25px; font-size: 14px; line-height: 1.8; }
 .notice p { margin-block: 13px 0; }
 .stats-group ul { list-style: none; padding: 0; }
+.placement-fields { margin: 25px 0; padding: 20px; border: 1px solid var(--line); border-radius: 5px; }
+.placement-fields legend { padding-inline: 8px; font-size: 12px; color: var(--accent); }
+.statistics-page { max-width: 1160px; }
+.statistics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-block: 30px; align-items: start; }
+.statistics-card { border: 1px solid var(--line); padding: 28px; border-radius: 6px; background: #fffefa; min-width: 0; }
+.privacy-page .statistics-card { margin-block: 0; }
+.statistics-card-heading h2 { font-size: 29px; margin-bottom: 16px; }
+.statistics-card-heading > p { font-size: 13px; line-height: 1.8; color: var(--muted); }
+.statistics-card-heading .eyebrow { display: block; font-size: 9px; margin-bottom: 15px; }
+.chart-switch { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 22px; }
+.chart-switch button { font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; background: transparent; }
+.chart-switch button[aria-pressed="true"] { color: #fffefa; background: var(--ink); border-color: var(--ink); }
+.chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 260px; text-align: center; padding: 24px; border: 1px dashed #c9cbbd; border-radius: 5px; background: var(--paper); }
+.chart-empty > span { font-size: 56px; color: #a4aa95; margin-bottom: 20px; }
+.chart-empty strong { font-size: 13px; font-weight: 500; }
+.chart-empty p { font-size: 12px; line-height: 1.8; color: var(--muted); margin-top: 14px; }
+.chart-empty small { font-size: 10px; color: var(--muted); }
+.survey-chart { margin: 0; }
+.chart-bars { list-style: none; padding: 0; max-height: 480px; overflow-y: auto; }
+.chart-bars li { margin-bottom: 20px; }
+.chart-bar-label { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; line-height: 1.7; }
+.chart-bar-label strong { font-weight: 500; white-space: nowrap; color: var(--accent); }
+.chart-bar-track { height: 13px; border-radius: 3px; overflow: hidden; background: #efeee5; margin-top: 8px; }
+.chart-bar-track > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.years .chart-bar-track > span { background: #536a42; }
+.survey-chart figcaption { font-size: 11px; line-height: 1.8; color: var(--muted); margin-top: 22px; }
+.donut-layout { display: flex; gap: 25px; align-items: center; flex-wrap: wrap; }
+.donut-layout svg { width: 170px; flex-shrink: 0; max-width: 100%; }
+.donut-layout ul { padding: 0; list-style: none; flex: 1; min-width: 150px; }
+.donut-layout li { display: flex; gap: 10px; font-size: 12px; line-height: 1.7; margin-bottom: 15px; }
+.donut-layout li strong { display: block; font-weight: 500; }
+.chart-dot { width: 12px; height: 12px; flex-shrink: 0; margin-top: 4px; border-radius: 50%; }
+.chart-table-wrap { overflow-x: auto; }
+.chart-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; text-align: left; }
+.chart-table-wrap caption { text-align: left; color: var(--muted); font-size: 11px; padding-bottom: 15px; }
+.chart-table-wrap th, .chart-table-wrap td { border-bottom: 1px solid var(--line); padding: 13px 8px; font-weight: 400; }
+.chart-table-wrap thead th { font-weight: 600; }
+.chart-table-wrap td { white-space: nowrap; color: var(--accent); }
+@media (max-width: 800px) {
+  .statistics-grid { grid-template-columns: 1fr; }
+  .statistics-card { padding: 22px; }
+  .placement-fields { padding: 15px; }
+}
 .stats-group li { display: flex; gap: 20px; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .stats-group li strong { white-space: nowrap; font-weight: 500; color: var(--accent); }
 .admin-page { padding-block: 50px 80px; }

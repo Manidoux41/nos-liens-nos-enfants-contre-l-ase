@@ -41,25 +41,47 @@ export const aseOptions: readonly (readonly [string, string])[] = [
   ["UNDISCLOSED", "Je préfère ne pas répondre"],
 ];
 
-export const CONSENT_VERSION = "2026-10-22-statistiques-v2";
+export const returnHomeOptions = [
+  ["ALL", "Tous mes enfants concernés sont revenus au foyer"],
+  ["SOME", "Certains sont revenus, d’autres non"],
+  ["NONE", "Aucun n’est revenu au foyer"],
+  ["NOT_APPLICABLE", "Je ne suis pas concerné par un placement"],
+  ["UNDISCLOSED", "Je préfère ne pas répondre"],
+] as const;
+export type ReturnHome = typeof returnHomeOptions[number][0];
+export const MIN_PLACEMENT_YEAR = 1900;
+export const LEGACY_CONSENT_VERSION = "2026-10-22-statistiques-v2";
+export const CONSENT_VERSION = "2026-10-22-parcours-v3";
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export type SurveyAnswer = {
   id: string;
   residence: string;
   ase: string;
+  placementYear?: number | null;
+  returnHome?: ReturnHome | null;
   judgeNames: string;
   socialWorkerNames: string;
   jurisdiction: string;
   privateConsent: boolean;
   consent: true;
-  consentVersion: typeof CONSENT_VERSION;
+  consentVersion: typeof CONSENT_VERSION | typeof LEGACY_CONSENT_VERSION;
 };
 
 export function isSurveyAnswer(value: unknown): value is SurveyAnswer {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return Object.keys(record).sort().join(",") === "ase,consent,consentVersion,id,judgeNames,jurisdiction,privateConsent,residence,socialWorkerNames"
+  const keys = Object.keys(record).sort().join(",");
+  const legacy = record.consentVersion === LEGACY_CONSENT_VERSION
+    && keys === "ase,consent,consentVersion,id,judgeNames,jurisdiction,privateConsent,residence,socialWorkerNames";
+  const current = record.consentVersion === CONSENT_VERSION
+    && keys === "ase,consent,consentVersion,id,judgeNames,jurisdiction,placementYear,privateConsent,residence,returnHome,socialWorkerNames"
+    && (record.placementYear === null || (typeof record.placementYear === "number"
+      && Number.isInteger(record.placementYear) && record.placementYear >= MIN_PLACEMENT_YEAR
+      && record.placementYear <= new Date().getUTCFullYear()))
+    && (record.returnHome === null || returnHomeOptions.some(([code]) => code === record.returnHome))
+    && !(record.returnHome === "NOT_APPLICABLE" && record.placementYear !== null);
+  return (legacy || current)
     && typeof record.id === "string" && UUID_PATTERN.test(record.id)
     && residenceOptions.some(([code]) => code === record.residence)
     && aseOptions.some(([code]) => code === record.ase)
@@ -68,8 +90,7 @@ export function isSurveyAnswer(value: unknown): value is SurveyAnswer {
     && validPrivateText(record.jurisdiction, 200)
     && typeof record.privateConsent === "boolean"
     && (!(String(record.judgeNames).trim() || String(record.socialWorkerNames).trim()) || record.privateConsent === true)
-    && record.consent === true
-    && record.consentVersion === CONSENT_VERSION;
+    && record.consent === true;
 }
 
 function validPrivateText(value: unknown, max: number) {

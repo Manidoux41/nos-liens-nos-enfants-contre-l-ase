@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { test } from "node:test";
-import { CONSENT_VERSION } from "../lib/survey.ts";
+import { CONSENT_VERSION, LEGACY_CONSENT_VERSION } from "../lib/survey.ts";
 import { database } from "../lib/db.ts";
 import { createAdmin } from "../lib/admin-accounts.ts";
 import { saveAnswer, deleteAnswer, pruneExpiredAnswers } from "../lib/survey-store.ts";
@@ -18,7 +18,7 @@ process.env.DATABASE_URL = url;
 const db = database();
 const answer = (overrides = {}) => ({
   id: randomUUID(), residence: "28", ase: "41", judgeNames: "", socialWorkerNames: "",
-  jurisdiction: "", privateConsent: false, consent: true, consentVersion: CONSENT_VERSION, ...overrides,
+  jurisdiction: "", placementYear: null, returnHome: null, privateConsent: false, consent: true, consentVersion: CONSENT_VERSION, ...overrides,
 });
 
 test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil, persistance et rétention", { timeout: 90000 }, async (t) => {
@@ -42,10 +42,10 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
       const exited = once(server, "exit"); server.kill("SIGTERM"); await exited;
     }
   }
-  async function start() {
+  async function start(overrides = {}) {
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3118", "--hostname", "127.0.0.1"], {
       cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: url, SITE_ORIGIN: origin, BETTER_AUTH_URL: origin, BETTER_AUTH_SECRET: secret, CRON_SECRET: cronSecret, BLOB_READ_WRITE_TOKEN: "" },
+      env: { ...process.env, DATABASE_URL: url, SITE_ORIGIN: origin, BETTER_AUTH_URL: origin, BETTER_AUTH_SECRET: secret, CRON_SECRET: cronSecret, BLOB_READ_WRITE_TOKEN: "", ...overrides },
       stdio: ["ignore", "pipe", "pipe"],
     });
     await new Promise((resolve, reject) => {
@@ -85,6 +85,10 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   const html = await (await fetch(origin)).text();
   assert.match(html, /lang="fr"/);
   assert.match(html, /depuis l’Asie/);
+  assert.match(html, /Année du premier placement/);
+  assert.match(html, /Retour des enfants au foyer/);
+  assert.match(html, /En attente de résultats publiables/);
+  assert.match(html, /Tableau accessible/);
   assert.doesNotMatch(html, /Noah|Izaach|Lory|Loukas|Illyana|Cabecinha|Boché|Wanza/);
   const loginHtml = await (await fetch(`${origin}/admin/connexion`)).text();
   const loginFormTag = loginHtml.match(/<form\b[^>]*>/)?.[0];
@@ -223,11 +227,13 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.equal(disableAccount.status, 303);
   assert.equal((await db.user.findUniqueOrThrow({ where: { id: secondUser.id } })).active, false);
 
-  const value = answer({ judgeNames: "JUGE_SYNTHETIQUE_PRIVE", socialWorkerNames: "SOCIAL_SYNTHETIQUE_PRIVE", jurisdiction: "LIBELLE_DECLARE_PRIVE", privateConsent: true });
+  const value = answer({ placementYear: 2019, returnHome: "SOME", judgeNames: "JUGE_SYNTHETIQUE_PRIVE", socialWorkerNames: "SOCIAL_SYNTHETIQUE_PRIVE", jurisdiction: "LIBELLE_DECLARE_PRIVE", privateConsent: true });
   fixtures.push(value);
   assert.equal((await send({ ...value, consent: false })).status, 400);
   assert.equal((await send({ ...value, privateConsent: false })).status, 400);
   assert.equal((await send({ ...value, ase: "999" })).status, 400);
+  assert.equal((await send({ ...value, placementYear: new Date().getUTCFullYear() + 1 })).status, 400);
+  assert.equal((await send({ ...value, returnHome: "NOT_APPLICABLE" })).status, 400);
   assert.equal((await send(value, { headers: { "Content-Type": "application/json", Origin: "https://example.invalid" } })).status, 403);
   assert.equal((await send(value, { headers: { "Content-Type": "text/plain", Origin: origin } })).status, 415);
   assert.equal((await send(value, { body: "{" })).status, 400);
@@ -241,10 +247,15 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.notEqual(stored.id, value.id);
   assert.equal(stored.status, "PENDING");
   assert.equal(stored.judgeNames, value.judgeNames);
+  assert.equal(stored.placementYear, 2019);
+  assert.equal(stored.returnHome, "SOME");
+  assert.equal((await send({ ...value, placementYear: 2018 })).status, 503, "retry with different new fields cannot overwrite an existing contribution");
   const before = await (await fetch(`${origin}/statistiques`)).text();
   assert.doesNotMatch(before, /JUGE_SYNTHETIQUE_PRIVE|SOCIAL_SYNTHETIQUE_PRIVE|LIBELLE_DECLARE_PRIVE/);
   const privateDashboard = await (await fetch(`${origin}/admin/sondage`, { headers: { Cookie: cookie } })).text();
   assert.match(privateDashboard, /JUGE_SYNTHETIQUE_PRIVE/);
+  assert.match(privateDashboard, /2019/);
+  assert.match(privateDashboard, /Certains sont revenus, d’autres non/);
   assert.doesNotMatch(privateDashboard, new RegExp(stored.deletionHash));
   const moderationForm = [...privateDashboard.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/g)].map((match) => match[1]).find((form) => form.includes(`value="${stored.id}"`) && form.includes('name="decision"'));
   assert.ok(moderationForm, "a real moderation form is rendered");
@@ -285,23 +296,51 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   const settingsSaved = await act(settingsAction, { petitionTitle: "Une pétition synthétique", petitionUrl: "https://petitions.example.invalid/une-petition", statsPublished: "on" });
   assert.match(settingsSaved.headers.get("location"), /success=1/);
   assert.equal((await db.siteSettings.findUniqueOrThrow({ where: { id: 1 } })).statsPublished, true);
+  const legacy = answer({ consentVersion: LEGACY_CONSENT_VERSION });
+  delete legacy.placementYear; delete legacy.returnHome;
+  fixtures.push(legacy);
+  assert.equal((await send(legacy)).status, 201, "old browser tabs can still submit without new fields");
+  const legacyRow = await db.surveyResponse.findUniqueOrThrow({ where: { deletionHash: deletionHash(legacy.id) } });
+  assert.equal(legacyRow.placementYear, null);
+  assert.equal(legacyRow.returnHome, null);
+  await db.surveyResponse.update({ where: { id: legacyRow.id }, data: { status: "APPROVED", placementYear: 2007, returnHome: "ALL" } });
+  for (const [placementYear, returnHome, status, expired] of [[2006, "NONE", "APPROVED", true], [2005, "SOME", "PENDING", false], [2004, "UNDISCLOSED", "APPROVED", false], [null, "NOT_APPLICABLE", "APPROVED", false]]) {
+    for (let index = 0; index < 10; index++) {
+      const fixture = answer({ placementYear, returnHome }); fixtures.push(fixture);
+      await saveAnswer(fixture);
+      await db.surveyResponse.update({ where: { deletionHash: deletionHash(fixture.id) }, data: { status, ...(expired ? { expiresAt: new Date(Date.now() - 1000) } : {}) } });
+    }
+  }
   for (let i = 0; i < 9; i++) {
-    const fixture = answer({ residence: "90", ase: "90" }); fixtures.push(fixture);
+    const fixture = answer({ residence: "90", ase: "90", placementYear: 2007, returnHome: "ALL" }); fixtures.push(fixture);
     await saveAnswer(fixture);
     await db.surveyResponse.update({ where: { deletionHash: deletionHash(fixture.id) }, data: { status: "APPROVED", jurisdictionId } });
   }
   const belowThreshold = await (await fetch(`${origin}/statistiques`)).text();
   assert.doesNotMatch(belowThreshold, /Tribunal judiciaire synthétique/);
-  const tenth = answer({ residence: "90", ase: "90" }); fixtures.push(tenth);
+  assert.doesNotMatch(belowThreshold, /2007/);
+  assert.doesNotMatch(belowThreshold, /2005|2006/);
+  assert.doesNotMatch(belowThreshold, /Tous mes enfants concernés sont revenus au foyer/);
+  const tenth = answer({ residence: "90", ase: "90", placementYear: 2007, returnHome: "ALL" }); fixtures.push(tenth);
   await saveAnswer(tenth);
   await db.surveyResponse.update({ where: { deletionHash: deletionHash(tenth.id) }, data: { status: "APPROVED", jurisdictionId } });
   const atThreshold = await (await fetch(`${origin}/statistiques`)).text();
   assert.match(atThreshold, /Tribunal judiciaire synthétique/);
-  assert.match(atThreshold, /10<!-- --> réponses/);
+  assert.match(atThreshold, /10(?:<!-- -->)? réponses/);
+  assert.match(atThreshold, /2007/);
+  assert.match(atThreshold, /Tous mes enfants concernés sont revenus au foyer/);
+  assert.match(atThreshold, /stroke-dasharray="100 0"/);
+  assert.doesNotMatch(atThreshold, /2005|2006/);
+  assert.doesNotMatch(atThreshold, /Aucun n’est revenu au foyer|Certains sont revenus, d’autres non/);
+  const homeAtThreshold = await (await fetch(origin)).text();
+  assert.match(homeAtThreshold, /stroke-dasharray="100 0"/);
+  assert.match(homeAtThreshold, /2007/);
   assert.doesNotMatch(atThreshold, /JUGE_SYNTHETIQUE_PRIVE|SOCIAL_SYNTHETIQUE_PRIVE|LIBELLE_DECLARE_PRIVE/);
   await deleteAnswer(tenth.id);
   const withdrawn = await (await fetch(`${origin}/statistiques`)).text();
   assert.doesNotMatch(withdrawn, /Tribunal judiciaire synthétique/);
+  assert.doesNotMatch(withdrawn, /2007/);
+  assert.doesNotMatch(withdrawn, /Tous mes enfants concernés sont revenus au foyer/);
 
   await db.surveyResponse.update({ where: { deletionHash: deletionHash(value.id) }, data: { expiresAt: new Date(Date.now() - 1000) } });
   assert.ok(await pruneExpiredAnswers() >= 1);
@@ -321,4 +360,14 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.doesNotMatch(disabled, /JUGE_SYNTHETIQUE_PRIVE|Connecté :/);
   const logout = await send({}, { headers: { "Content-Type": "application/json", Origin: origin, Cookie: cookie } }, "/api/auth/sign-out");
   assert.equal(logout.status, 200);
+  await stop();
+  await start({ DATABASE_URL: "postgresql://test@127.0.0.1:1/ase_app_test" });
+  for (const route of ["/statistiques", "/"]) {
+    const unavailable = await (await fetch(`${origin}${route}`)).text();
+    assert.match(unavailable, /Les statistiques sont momentanément indisponibles/);
+    assert.match(unavailable, /Année du premier placement/);
+    assert.match(unavailable, /Retour des enfants au foyer/);
+    assert.match(unavailable, /Lecture impossible/);
+    assert.doesNotMatch(unavailable, /stroke-dasharray=/, "no fake chart values during an outage");
+  }
 });

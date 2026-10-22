@@ -25,7 +25,7 @@ npm run db:migrate
 npm run dev
 ```
 
-L’accueil et le récit sont statiques ; la collecte, les statistiques et l’authentification nécessitent la base et les variables renseignées. Les erreurs de base sont affichées explicitement, sans fausses statistiques à zéro ni faux succès de collecte.
+Le récit est pré-rendu ; le sondage (année actuelle) et les résultats de l’accueil sont chargés à la demande derrière des limites Suspense. La collecte, les statistiques et l’authentification nécessitent la base et les variables renseignées. Les erreurs de base sont affichées explicitement, sans fausses statistiques à zéro ni faux succès de collecte ; les cadres des graphiques restent visibles.
 
 ### Premier administrateur
 
@@ -100,6 +100,8 @@ Les sessions durent douze heures, sans cache de session côté client. Les limit
 `POST /api/sondage` valide les 101 départements, les options de non-réponse, les limites de texte et les consentements :
 
 - département de résidence et ASE distincts ;
+- année du **premier placement parmi les enfants** facultative (`placementYear`, entier de 1900 à l’année UTC actuelle, ou `null`) ;
+- retour au foyer au moment de la réponse facultatif (`returnHome` : `ALL`, `SOME`, `NONE`, `NOT_APPLICABLE`, `UNDISCLOSED`, ou `null`). Le choix non concerné exige une année vide. Aucun nombre d’enfants ni date de naissance n’est collecté ;
 - juridiction déclarée facultative (200 caractères) ;
 - juges et intervenants sociaux facultatifs (600 caractères par champ), strictement privés ;
 - consentement général à la collecte et aux statistiques, accord distinct lorsque des noms professionnels sont fournis ;
@@ -114,7 +116,10 @@ Un code aléatoire de suppression est généré dans le navigateur. Seule son em
 - Statuts `PENDING`, `APPROVED`, `REJECTED` ; seuls `APPROVED` et les enregistrements non expirés sont comptés.
 - Les juridictions saisies par les participants ne deviennent **jamais** automatiquement des libellés publics. L’administrateur vérifie un nom institutionnel, l’ajoute au référentiel et effectue le rattachement.
 - Les juridictions peuvent être renommées ou supprimées ; leur suppression détache les contributions sans les effacer.
-- Le seuil public est fixe à **10 réponses par groupe**, avec résidence, ASE et juridiction affichées séparément, sans tableau croisé, petit effectif ou total général.
+- Le seuil public est fixe à **10 réponses par groupe**, avec résidence, ASE, juridiction, année du premier placement et retour au foyer affichés séparément, sans tableau croisé, petit effectif ou total général.
+- L’accueil, sous le formulaire, affiche déjà les cadres des graphiques ASE / années / retours. `/statistiques` ajoute résidence et juridictions. Chaque vue propose un graphique et un tableau accessible : barres horizontales, années classées chronologiquement et anneau des retours. Aucun graphique ne fabrique d’effectif lorsque la publication est fermée, la base indisponible ou le seuil non atteint.
+- Les graphiques comptent des **contributions**, pas des enfants. L’anneau représente uniquement les catégories publiables ; ce n’est pas un taux global de retour. Ni les groupes masqués, ni les non-réponses, ni les options `NOT_APPLICABLE` / `UNDISCLOSED` ne sont déduits d’un total. Une année absente n’équivaut pas à zéro et l’année du premier placement ne mesure pas la durée continue d’un placement.
+- Les nouvelles questions utilisent le consentement `2026-10-22-parcours-v3`. Les requêtes des deux nouvelles vues exigent cette version. Les anciennes requêtes `2026-10-22-statistiques-v2` restent acceptées sans nouveaux champs (compatibilité des onglets déjà ouverts), mais ne peuvent enrichir une réponse ou autoriser implicitement les nouveaux comptages. Les anciennes lignes conservent `null` pour les deux champs.
 - Les options « inconnu », « hors de France », « non-réponse » ne sont pas affichées comme départements.
 - Les noms des juges et intervenants ne participent à aucune requête de statistiques publiques. Aucun classement de personnes.
 - La publication est activée explicitement dans l’administration. Les requêtes publiques sont effectuées à la demande et dans une transaction cohérente ; un retrait est pris en compte lors du prochain chargement.
@@ -168,5 +173,13 @@ TEST_DATABASE_URL=postgresql://USER@127.0.0.1:PORT/ase_app_test npm run test:htt
 ```
 
 Le port HTTP 3118 doit être libre. Ce test démarre et arrête son propre serveur Next.js de production, vérifie les limites d’entrée, les consentements, l’authentification, les accès refusés, les véritables Server Actions de modération, la confidentialité des noms, les seuils 9/10, le retrait, les écritures concurrentes, la persistance après redémarrage et la rétention. Il supprime ses fixtures et les tables de maintenance de la base de test. **Ne jamais utiliser une base réelle.**
+
+### Déployer les questions de placement et les graphiques
+
+Appliquer la migration additive `20261022070000_survey_placement` avec `npm run db:migrate` sur la base cible **avant** de déployer cette version. Elle ajoute un enum et deux colonnes nullables, sans effacer ni compléter artificiellement les réponses existantes.
+
+Pour publier des résultats réels : dans `/admin/sondage`, activer « Ouvrir les statistiques publiques » et approuver les contributions. Chaque groupe doit ensuite atteindre dix réponses non expirées ; les graphiques apparaissent sans chiffres tant que ces conditions ne sont pas remplies.
+
+Si la production affiche « statistiques momentanément indisponibles », ce n’est pas l’état normal d’une collecte vide ou fermée. Vérifier les **variables Vercel Production**, la base effectivement ciblée, les migrations et les logs de la fonction. Une connexion locale réussie ne prouve pas que Vercel utilise cette même configuration. Ne pas publier de valeurs fictives ni désactiver les contrôles pour masquer cette erreur. Les cadres graphiques restent visibles avec une erreur explicite.
 
 Le plan `.tsupgrader/runtime-validation/eval-plan.json` rejoue build, lint, tests unitaires et sondes HTTP. Le test PostgreSQL demande une base isolée et s’exécute séparément.

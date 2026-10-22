@@ -12,11 +12,21 @@ enum ModerationStatus {
   REJECTED
 }
 
+enum ReturnHomeStatus {
+  ALL
+  SOME
+  NONE
+  NOT_APPLICABLE
+  UNDISCLOSED
+}
+
 model SurveyResponse {
   id                   String           @id @default(uuid()) @db.Uuid
   deletionHash         String           @unique
   residence            String           @db.VarChar(16)
   ase                  String           @db.VarChar(16)
+  placementYear        Int?
+  returnHome           ReturnHomeStatus?
   judgeNames           String           @db.VarChar(600)
   socialWorkerNames    String           @db.VarChar(600)
   jurisdictionReported String           @db.VarChar(200)

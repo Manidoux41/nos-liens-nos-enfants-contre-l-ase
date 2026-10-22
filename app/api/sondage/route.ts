@@ -48,7 +48,7 @@ async function handle(request: Request, action: "save" | "delete") {
     return Response.json({ error: "La requête n’est pas un JSON valide." }, { status: 400, headers });
   }
   if (action === "save" && !isSurveyAnswer(body)) {
-    return Response.json({ error: "Vérifiez les départements sélectionnés et votre consentement." }, { status: 400, headers });
+    return Response.json({ error: "Vérifiez les départements, l’année de placement (1900 à l’année actuelle), le retour au foyer et vos consentements. Une année ne peut pas être indiquée si vous n’êtes pas concerné par un placement." }, { status: 400, headers });
   }
   if (action === "delete" && (!body || typeof body !== "object" || !("id" in body) || typeof body.id !== "string" || !UUID_PATTERN.test(body.id))) {
     return Response.json({ error: "Le code de suppression n’est pas valide." }, { status: 400, headers });

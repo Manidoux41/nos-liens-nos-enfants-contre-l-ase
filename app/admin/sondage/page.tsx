@@ -3,7 +3,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { requireAdmin } from "@/lib/admin";
 import { database } from "@/lib/db";
-import { aseOptions, optionLabel, residenceOptions } from "@/lib/survey";
+import { aseOptions, optionLabel, residenceOptions, returnHomeOptions } from "@/lib/survey";
 import { addAdministrator, addJurisdiction, changeOwnPassword, moderate, saveSettings, updateAdministrator, updateJurisdiction } from "../actions";
 import { LogoutButton } from "../logout-button";
 
@@ -21,7 +21,7 @@ async function Dashboard({ searchParams }: { searchParams: Query }) {
   const [responses, total, jurisdictions, settings, users, logs] = await Promise.all([
     db.surveyResponse.findMany({
       where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 25, take: 25,
-      select: { id: true, residence: true, ase: true, judgeNames: true, socialWorkerNames: true, jurisdictionReported: true, jurisdictionId: true, createdAt: true, status: true },
+      select: { id: true, residence: true, ase: true, placementYear: true, returnHome: true, judgeNames: true, socialWorkerNames: true, jurisdictionReported: true, jurisdictionId: true, createdAt: true, status: true },
     }),
     db.surveyResponse.count({ where }),
     db.jurisdiction.findMany({ orderBy: { name: "asc" } }),
@@ -38,6 +38,7 @@ async function Dashboard({ searchParams }: { searchParams: Query }) {
       {!responses.length && <p>Aucune réponse dans cette catégorie.</p>}
       <div className="admin-responses">{responses.map((response) => <article key={response.id} className="admin-response">
         <p className="eyebrow">{response.createdAt.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })} · {labels[response.status]}</p>
+        <dl><div><dt>Année du premier placement</dt><dd>{response.placementYear ?? "Non renseignée"}</dd></div><div><dt>Retour au foyer déclaré</dt><dd>{response.returnHome ? optionLabel(returnHomeOptions, response.returnHome) : "Non renseigné (ou ancienne contribution)"}</dd></div></dl>
         <dl><div><dt>Résidence</dt><dd>{optionLabel(residenceOptions, response.residence)}</dd></div><div><dt>ASE</dt><dd>{optionLabel(aseOptions, response.ase)}</dd></div><div><dt>Juges — privé</dt><dd>{response.judgeNames || "Non renseigné"}</dd></div><div><dt>Intervenants sociaux — privé</dt><dd>{response.socialWorkerNames || "Non renseigné"}</dd></div><div><dt>Juridiction déclarée — privé</dt><dd>{response.jurisdictionReported || "Non renseignée"}</dd></div></dl>
         <form action={moderate}><input type="hidden" name="id" value={response.id} /><label className="field-label" htmlFor={`jurisdiction-${response.id}`}>Juridiction institutionnelle vérifiée pour le comptage public</label><select id={`jurisdiction-${response.id}`} name="jurisdictionId" defaultValue={response.jurisdictionId || ""}><option value="">Non rattachée — aucun comptage par juridiction</option>{jurisdictions.map((jurisdiction) => <option key={jurisdiction.id} value={jurisdiction.id}>{jurisdiction.name}</option>)}</select><div className="admin-buttons"><button name="decision" value="APPROVED" className="button button-small">Approuver / mettre à jour</button><button name="decision" value="REJECTED" className="button button-small">Rejeter</button><button name="decision" value="PENDING" className="button button-small">Remettre en attente</button></div><details><summary>Suppression définitive</summary><p>Cette action retire immédiatement la réponse des comptages actifs.</p><button name="decision" value="DELETE" className="button button-small button-primary">Confirmer la suppression définitive</button></details></form>
       </article>)}</div>

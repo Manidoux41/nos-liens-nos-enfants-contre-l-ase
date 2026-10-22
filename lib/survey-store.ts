@@ -21,6 +21,8 @@ export async function saveAnswer(answer: SurveyAnswer): Promise<"saved" | "exist
     deletionHash: deletionHash(answer.id),
     residence: answer.residence,
     ase: answer.ase,
+    placementYear: answer.placementYear ?? null,
+    returnHome: answer.returnHome ?? null,
     judgeNames: answer.judgeNames.trim(),
     socialWorkerNames: answer.socialWorkerNames.trim(),
     jurisdictionReported: answer.jurisdiction.trim(),
@@ -36,6 +38,7 @@ export async function saveAnswer(answer: SurveyAnswer): Promise<"saved" | "exist
     const existing = await database().surveyResponse.findUnique({ where: { deletionHash: data.deletionHash } });
     if (existing && existing.expiresAt > new Date()
       && existing.residence === data.residence && existing.ase === data.ase
+      && existing.placementYear === data.placementYear && existing.returnHome === data.returnHome
       && existing.judgeNames === data.judgeNames && existing.socialWorkerNames === data.socialWorkerNames
       && existing.jurisdictionReported === data.jurisdictionReported && existing.consentVersion === data.consentVersion
       && existing.privateConsent === data.privateConsent) return "exists";

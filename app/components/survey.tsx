@@ -2,12 +2,14 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { aseOptions, CONSENT_VERSION, optionLabel, residenceOptions } from "@/lib/survey";
+import { aseOptions, CONSENT_VERSION, MIN_PLACEMENT_YEAR, optionLabel, residenceOptions, returnHomeOptions, type ReturnHome } from "@/lib/survey";
 
 export function Survey() {
   const [step, setStep] = useState(1);
   const [residence, setResidence] = useState("");
   const [ase, setAse] = useState("");
+  const [placementYear, setPlacementYear] = useState("");
+  const [returnHome, setReturnHome] = useState<ReturnHome | "">("");
   const [consent, setConsent] = useState(false);
   const [judgeNames, setJudgeNames] = useState("");
   const [socialWorkerNames, setSocialWorkerNames] = useState("");
@@ -35,7 +37,7 @@ export function Survey() {
       const response = await fetch("/api/sondage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: id.current, residence, ase, judgeNames, socialWorkerNames, jurisdiction, privateConsent, consent, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ id: id.current, residence, ase, placementYear: placementYear ? Number(placementYear) : null, returnHome: returnHome || null, judgeNames, socialWorkerNames, jurisdiction, privateConsent, consent, consentVersion: CONSENT_VERSION }),
       });
       const result: unknown = await response.json();
       if (!response.ok) {
@@ -75,6 +77,14 @@ export function Survey() {
           <label className="field-label" htmlFor="ase">De quelle ASE dépendez-vous ? <span aria-hidden="true">*</span></label>
           <select id="ase" name="ase" aria-describedby="ase-help" value={ase} onChange={(event) => { setAse(event.target.value); id.current = ""; }} required><option value="" disabled>Sélectionnez le département de l’ASE</option>{aseOptions.map(([code, name]) => <option key={code} value={code}>{/^\d/.test(code) ? `${code} — ` : ""}{name}</option>)}</select>
           <p id="ase-help" className="field-help">Il peut être différent de votre lieu de résidence. Le code 69 regroupe le Rhône et la Métropole de Lyon.</p>
+          <fieldset className="placement-fields"><legend>Le parcours de vos enfants — facultatif</legend>
+            <label className="field-label" htmlFor="placement-year">En quelle année a commencé le premier placement de vos enfants ?</label>
+            <input id="placement-year" name="placementYear" type="number" min={MIN_PLACEMENT_YEAR} max={new Date().getUTCFullYear()} step={1} value={placementYear} disabled={returnHome === "NOT_APPLICABLE"} onChange={(event) => { setPlacementYear(event.target.value); id.current = ""; }} aria-describedby="placement-help" placeholder="Exemple : 2020" />
+            <p className="field-help" id="placement-help">Si plusieurs enfants sont concernés, indiquez l’année du premier placement parmi eux. Il ne s’agit pas de la date de participation. Laissez vide si vous ne savez pas ou préférez ne pas répondre. Aucun nom ni date de naissance.</p>
+            <label className="field-label" htmlFor="return-home">Au moment de votre réponse, vos enfants concernés sont-ils revenus à votre foyer ?</label>
+            <select id="return-home" name="returnHome" value={returnHome} onChange={(event) => { const value = returnHomeOptions.find(([code]) => code === event.target.value)?.[0] || ""; setReturnHome(value); if (value === "NOT_APPLICABLE") setPlacementYear(""); id.current = ""; }}><option value="">Non renseigné</option>{returnHomeOptions.map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select>
+            <p className="field-help">Un seul choix pour l’ensemble de vos enfants concernés. Il s’agit d’une situation déclarée à cet instant, pas d’un taux de réussite de l’ASE.</p>
+          </fieldset>
           <label className="field-label" htmlFor="jurisdiction">Juridiction(s) intervenante(s) — facultatif</label>
           <input id="jurisdiction" value={jurisdiction} onChange={(event) => { setJurisdiction(event.target.value); id.current = ""; }} maxLength={200} placeholder="Tribunal judiciaire, cour d’appel et ville…" aria-describedby="jurisdiction-help" />
           <p id="jurisdiction-help" className="field-help">Le libellé déclaré reste privé. Une juridiction officielle pourra être rattachée après modération pour les statistiques.</p>
@@ -88,9 +98,10 @@ export function Survey() {
           <button className="button button-primary form-submit" type="submit">Continuer <span aria-hidden="true">→</span></button>
           <p className="small-print">* Choix requis ; vous pouvez préférer ne pas répondre.<br />Aucune donnée n’est envoyée à cette étape.</p>
         </> : <>
+          <dl className="answer-summary"><div><dt>Année du premier placement</dt><dd>{placementYear || "Non renseignée"}</dd></div><div><dt>Retour au foyer à ce jour</dt><dd>{returnHome ? optionLabel(returnHomeOptions, returnHome) : "Non renseigné"}</dd></div></dl>
           <dl className="answer-summary"><div><dt>Votre résidence</dt><dd>{optionLabel(residenceOptions, residence)}</dd></div><div><dt>Votre ASE de rattachement</dt><dd>{optionLabel(aseOptions, ase)}</dd></div><div><dt>Juridiction déclarée — privé avant modération</dt><dd>{jurisdiction || "Non renseignée"}</dd></div><div><dt>Juges — strictement privé</dt><dd>{judgeNames || "Non renseigné"}</dd></div><div><dt>Intervenants sociaux — strictement privé</dt><dd>{socialWorkerNames || "Non renseigné"}</dd></div></dl>
           {(judgeNames.trim() || socialWorkerNames.trim()) && <label className="consent-label"><input type="checkbox" checked={privateConsent} onChange={(event) => { setPrivateConsent(event.target.checked); id.current = ""; }} required disabled={pending} /><span>Je demande la conservation privée des noms professionnels que je fournis, sans publication ni classement nominatif. Je comprends que mon accord ne remplace pas les droits des personnes nommées.</span></label>}
-          <label className="consent-label"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required disabled={pending} /><span>J’accepte la conservation de ma contribution pendant 12 mois maximum et, après modération, son utilisation dans des statistiques publiques par département et juridiction à partir de dix réponses, pour éclairer une future pétition. J’ai lu les <Link href="/confidentialite" target="_blank">informations de confidentialité (nouvel onglet)</Link>. Je peux retirer mon consentement avec mon code. Participer ne vaut pas signer une pétition.</span></label>
+          <label className="consent-label"><input type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); id.current = ""; }} required disabled={pending} /><span>J’accepte la conservation de ma contribution pendant 12 mois maximum et, après modération, son utilisation dans des statistiques publiques séparées par département, juridiction, année du premier placement et retour au foyer à partir de dix réponses par groupe, pour éclairer une future pétition. J’ai lu les <Link href="/confidentialite" target="_blank">informations de confidentialité (nouvel onglet)</Link>. Je peux retirer mon consentement avec mon code. Participer ne vaut pas signer une pétition.</span></label>
           <p className="field-help">Vos propres nom et coordonnées ne sont pas demandés. Vos choix et les noms professionnels peuvent néanmoins permettre une identification indirecte. Les champs nominatifs ne sont jamais publics.</p>
           <button className="button button-primary form-submit" type="submit" disabled={pending}>{pending ? "Enregistrement en cours…" : "Envoyer ma réponse"}<span aria-hidden="true">↗</span></button>
           <button className="back-button" type="button" disabled={pending} onClick={() => changeStep(1)}>← Modifier mes réponses</button>
