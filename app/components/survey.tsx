@@ -2,9 +2,10 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { aseOptions, CONSENT_VERSION, MIN_PLACEMENT_YEAR, optionLabel, residenceOptions, returnHomeOptions, type ReturnHome } from "@/lib/survey";
+import { aseOptions, MIN_PLACEMENT_YEAR, optionLabel, residenceOptions, returnHomeOptions, type ReturnHome } from "@/lib/survey";
+import { DEFAULT_POLL_ID, EMAIL_CONSENT_VERSION } from "@/lib/polls";
 
-export function Survey() {
+export function Survey({ pollId = DEFAULT_POLL_ID }: { pollId?: string }) {
   const [step, setStep] = useState(1);
   const [residence, setResidence] = useState("");
   const [ase, setAse] = useState("");
@@ -18,6 +19,11 @@ export function Survey() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeMessage, setCodeMessage] = useState("");
   const id = useRef("");
   const heading = useRef<HTMLHeadingElement>(null);
 
@@ -25,6 +31,24 @@ export function Survey() {
     setError("");
     setStep(next);
     requestAnimationFrame(() => heading.current?.focus());
+  }
+
+  async function requestCode() {
+    setSendingCode(true); setError(""); setCodeMessage("");
+    setChallengeId(""); setCode("");
+    try {
+      const response = await fetch("/api/sondage/code", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pollId, email }),
+      });
+      const result: unknown = await response.json();
+      if (!response.ok || !result || typeof result !== "object" || !("challengeId" in result) || typeof result.challengeId !== "string") {
+        throw new Error(result && typeof result === "object" && "error" in result && typeof result.error === "string" ? result.error : "L’envoi du code n’a pas pu être confirmé.");
+      }
+      setChallengeId(result.challengeId); setCode("");
+      setCodeMessage("Code envoyé. Consultez votre messagerie et les indésirables. Le dernier code reçu expire dans dix minutes.");
+    } catch (error) { setError(error instanceof Error ? error.message : "L’envoi a échoué."); }
+    finally { setSendingCode(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -37,7 +61,7 @@ export function Survey() {
       const response = await fetch("/api/sondage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: id.current, residence, ase, placementYear: placementYear ? Number(placementYear) : null, returnHome: returnHome || null, judgeNames, socialWorkerNames, jurisdiction, privateConsent, consent, consentVersion: CONSENT_VERSION }),
+        body: JSON.stringify({ pollId, email, challengeId, code, answer: { id: id.current, residence, ase, placementYear: placementYear ? Number(placementYear) : null, returnHome: returnHome || null, judgeNames, socialWorkerNames, jurisdiction, privateConsent, consent, consentVersion: EMAIL_CONSENT_VERSION } }),
       });
       const result: unknown = await response.json();
       if (!response.ok) {
@@ -98,12 +122,21 @@ export function Survey() {
           <button className="button button-primary form-submit" type="submit">Continuer <span aria-hidden="true">→</span></button>
           <p className="small-print">* Choix requis ; vous pouvez préférer ne pas répondre.<br />Aucune donnée n’est envoyée à cette étape.</p>
         </> : <>
+          <fieldset className="placement-fields"><legend>Vérifier votre adresse e-mail</legend>
+            <label className="field-label" htmlFor="survey-email">Votre adresse e-mail *</label>
+            <input id="survey-email" name="email" type="email" autoComplete="email" maxLength={254} required disabled={pending || sendingCode} value={email} onChange={(event) => { setEmail(event.target.value); setChallengeId(""); setCode(""); setCodeMessage(""); id.current = ""; }} />
+            <p className="field-help">Une réponse par adresse vérifiée et par sondage. Votre adresse est transmise à Resend uniquement pour envoyer le code ; seule une empreinte protégée est conservée en base. Pas de newsletter. Après suppression complète, vous pourrez répondre à nouveau.</p>
+            <button type="button" className="button button-small" disabled={pending || sendingCode || !email.trim()} onClick={requestCode}>{sendingCode ? "Envoi du code…" : challengeId ? "Recevoir un nouveau code" : "Recevoir mon code par e-mail"}</button>
+            {codeMessage && <p className="field-help" role="status">{codeMessage}</p>}
+            <label className="field-label" htmlFor="survey-email-code">Code reçu par e-mail — 8 chiffres *</label>
+            <input id="survey-email-code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" minLength={8} maxLength={8} required disabled={pending || sendingCode || !challengeId} value={code} onChange={(event) => setCode(event.target.value)} />
+          </fieldset>
           <dl className="answer-summary"><div><dt>Année du premier placement</dt><dd>{placementYear || "Non renseignée"}</dd></div><div><dt>Retour au foyer à ce jour</dt><dd>{returnHome ? optionLabel(returnHomeOptions, returnHome) : "Non renseigné"}</dd></div></dl>
           <dl className="answer-summary"><div><dt>Votre résidence</dt><dd>{optionLabel(residenceOptions, residence)}</dd></div><div><dt>Votre ASE de rattachement</dt><dd>{optionLabel(aseOptions, ase)}</dd></div><div><dt>Juridiction déclarée — privé avant modération</dt><dd>{jurisdiction || "Non renseignée"}</dd></div><div><dt>Juges — strictement privé</dt><dd>{judgeNames || "Non renseigné"}</dd></div><div><dt>Intervenants sociaux — strictement privé</dt><dd>{socialWorkerNames || "Non renseigné"}</dd></div></dl>
           {(judgeNames.trim() || socialWorkerNames.trim()) && <label className="consent-label"><input type="checkbox" checked={privateConsent} onChange={(event) => { setPrivateConsent(event.target.checked); id.current = ""; }} required disabled={pending} /><span>Je demande la conservation privée des noms professionnels que je fournis, sans publication ni classement nominatif. Je comprends que mon accord ne remplace pas les droits des personnes nommées.</span></label>}
-          <label className="consent-label"><input type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); id.current = ""; }} required disabled={pending} /><span>J’accepte la conservation de ma contribution pendant 12 mois maximum et, après modération, son utilisation dans des statistiques publiques séparées par département, juridiction, année du premier placement et retour au foyer à partir de dix réponses par groupe, pour éclairer une future pétition. J’ai lu les <Link href="/confidentialite" target="_blank">informations de confidentialité (nouvel onglet)</Link>. Je peux retirer mon consentement avec mon code. Participer ne vaut pas signer une pétition.</span></label>
-          <p className="field-help">Vos propres nom et coordonnées ne sont pas demandés. Vos choix et les noms professionnels peuvent néanmoins permettre une identification indirecte. Les champs nominatifs ne sont jamais publics.</p>
-          <button className="button button-primary form-submit" type="submit" disabled={pending}>{pending ? "Enregistrement en cours…" : "Envoyer ma réponse"}<span aria-hidden="true">↗</span></button>
+          <label className="consent-label"><input type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); id.current = ""; }} required disabled={pending} /><span>J’accepte la vérification de mon e-mail et la conservation de son empreinte pour limiter à une réponse par adresse et par sondage, ainsi que la conservation de ma contribution pendant 12 mois maximum et, après modération, son utilisation dans des statistiques publiques séparées par département, juridiction, année du premier placement et retour au foyer à partir de dix réponses par groupe, pour éclairer une future pétition. J’ai lu les <Link href="/confidentialite" target="_blank">informations de confidentialité (nouvel onglet)</Link>. Je peux retirer mon consentement avec mon code de suppression. Participer ne vaut pas signer une pétition.</span></label>
+          <p className="field-help">Votre propre nom et votre adresse postale ne sont pas demandés. L’e-mail sert uniquement à vérifier la participation. Vos choix et les noms professionnels peuvent néanmoins permettre une identification indirecte. Les champs nominatifs ne sont jamais publics.</p>
+          <button className="button button-primary form-submit" type="submit" disabled={pending || sendingCode || !challengeId || !/^\d{8}$/.test(code)}>{pending ? "Enregistrement en cours…" : "Envoyer ma réponse"}<span aria-hidden="true">↗</span></button>
           <button className="back-button" type="button" disabled={pending} onClick={() => changeStep(1)}>← Modifier mes réponses</button>
         </>}
         {error && <p className="form-error" role="alert">{error}</p>}

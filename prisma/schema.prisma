@@ -20,9 +20,45 @@ enum ReturnHomeStatus {
   UNDISCLOSED
 }
 
+enum PollStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+model Poll {
+  id               String            @id @default(uuid()) @db.Uuid
+  title            String            @db.VarChar(180)
+  slug             String            @unique @db.VarChar(120)
+  description      String            @db.VarChar(2000)
+  status           PollStatus        @default(DRAFT)
+  resultsPublished Boolean           @default(false)
+  version          Int               @default(1)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  responses        SurveyResponse[]
+  challenges       SurveyEmailChallenge[]
+}
+
+model SurveyEmailChallenge {
+  id        String   @id @db.Uuid
+  pollId    String   @db.Uuid
+  poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  emailHash String   @db.VarChar(64)
+  codeHash  String   @db.VarChar(64)
+  attempts  Int      @default(0)
+  expiresAt DateTime
+
+  @@unique([pollId, emailHash])
+  @@index([expiresAt])
+}
+
 model SurveyResponse {
   id                   String           @id @default(uuid()) @db.Uuid
   deletionHash         String           @unique
+  pollId               String           @default("00000000-0000-4000-8000-000000000001") @db.Uuid
+  poll                 Poll             @relation(fields: [pollId], references: [id], onDelete: Restrict)
+  emailHash            String?          @db.VarChar(64)
   residence            String           @db.VarChar(16)
   ase                  String           @db.VarChar(16)
   placementYear        Int?
@@ -44,6 +80,8 @@ model SurveyResponse {
   @@index([status, createdAt])
   @@index([expiresAt])
   @@index([jurisdictionId, status])
+  @@unique([pollId, emailHash])
+  @@index([pollId, status, expiresAt])
 }
 
 model Jurisdiction {

@@ -3,11 +3,11 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { requireAdmin } from "@/lib/admin";
 import { database } from "@/lib/db";
-import { aseOptions, optionLabel, residenceOptions, returnHomeOptions } from "@/lib/survey";
+import { aseOptions, optionLabel, residenceOptions, returnHomeOptions, UUID_PATTERN } from "@/lib/survey";
 import { addAdministrator, addJurisdiction, changeOwnPassword, moderate, saveSettings, updateAdministrator, updateJurisdiction } from "../actions";
 import { LogoutButton } from "../logout-button";
 
-type Query = Promise<{ status?: string; page?: string; success?: string; error?: string }>;
+type Query = Promise<{ status?: string; page?: string; poll?: string; success?: string; error?: string }>;
 const labels = { PENDING: "À modérer", APPROVED: "Approuvée", REJECTED: "Rejetée" };
 
 async function Dashboard({ searchParams }: { searchParams: Query }) {
@@ -17,32 +17,36 @@ async function Dashboard({ searchParams }: { searchParams: Query }) {
   const status: "APPROVED" | "REJECTED" | "PENDING" = query.status === "APPROVED" || query.status === "REJECTED" ? query.status : "PENDING";
   const page = Math.max(1, Math.min(10000, Number.parseInt(query.page || "1", 10) || 1));
   const db = database();
-  const where = { status, expiresAt: { gt: new Date() } };
-  const [responses, total, jurisdictions, settings, users, logs] = await Promise.all([
+  const pollId = query.poll && UUID_PATTERN.test(query.poll) ? query.poll : undefined;
+  const where = { status, expiresAt: { gt: new Date() }, ...(pollId ? { pollId } : {}) };
+  const filter = pollId ? `&poll=${pollId}` : "";
+  const [responses, total, jurisdictions, settings, users, logs, polls] = await Promise.all([
     db.surveyResponse.findMany({
       where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 25, take: 25,
-      select: { id: true, residence: true, ase: true, placementYear: true, returnHome: true, judgeNames: true, socialWorkerNames: true, jurisdictionReported: true, jurisdictionId: true, createdAt: true, status: true },
+      select: { id: true, residence: true, ase: true, placementYear: true, returnHome: true, judgeNames: true, socialWorkerNames: true, jurisdictionReported: true, jurisdictionId: true, createdAt: true, status: true, poll: { select: { title: true } } },
     }),
     db.surveyResponse.count({ where }),
     db.jurisdiction.findMany({ orderBy: { name: "asc" } }),
     db.siteSettings.findUnique({ where: { id: 1 } }),
     db.user.findMany({ select: { id: true, email: true, active: true }, orderBy: { createdAt: "asc" } }),
     db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
+    db.poll.findMany({ select: { id: true, title: true }, orderBy: { title: "asc" } }),
   ]);
   return <>
     <div className="admin-heading"><div><p className="eyebrow">MODÉRATION & PUBLICATION</p><h1>Une parole à traiter<br /><em>avec discernement.</em></h1><p>Connecté : {actor.email}</p></div><LogoutButton /></div>
     {query.error && <p role="alert" className="form-error">{query.error === "input" ? "Les valeurs saisies ne sont pas valides. Aucun changement n’a été appliqué." : "L’opération a échoué. Vérifiez la connexion, les doublons et les valeurs saisies. Aucun succès ne peut être confirmé."}</p>}
     {query.success && <p role="status" className="deletion-success">L’opération a été enregistrée.</p>}
     <div className="notice"><strong>Données nominatives confidentielles.</strong><p>Les noms sont des déclarations non vérifiées. Ne les copiez pas dans les libellés publics de juridictions. Approuver une réponse autorise son comptage, sans établir une faute ou un placement abusif. Ne publiez aucun document de procédure, identité de mineur ou classement de professionnels.</p><p><Link href="/statistiques">Voir les statistiques publiques →</Link></p></div>
-    <section className="admin-section"><div className="admin-tabs">{Object.entries(labels).map(([key, label]) => <Link key={key} href={`/admin/sondage?status=${key}`} aria-current={key === status ? "page" : undefined}>{label}</Link>)}</div><h2>{total} réponse(s) · {labels[status]}</h2>
+    <section className="admin-section"><Link className="button button-small" href="/admin/sondages">Créer et publier d’autres sondages →</Link><form className="editorial-filters"><input type="hidden" name="status" value={status} /><label>Filtrer par sondage<select name="poll" defaultValue={pollId || ""}><option value="">Tous les sondages</option>{polls.map((poll) => <option value={poll.id} key={poll.id}>{poll.title}</option>)}</select></label><button className="button button-small">Filtrer</button></form><div className="admin-tabs">{Object.entries(labels).map(([key, label]) => <Link key={key} href={`/admin/sondage?status=${key}${filter}`} aria-current={key === status ? "page" : undefined}>{label}</Link>)}</div><h2>{total} réponse(s) · {labels[status]}</h2>
       {!responses.length && <p>Aucune réponse dans cette catégorie.</p>}
       <div className="admin-responses">{responses.map((response) => <article key={response.id} className="admin-response">
         <p className="eyebrow">{response.createdAt.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })} · {labels[response.status]}</p>
+        <p>Sondage : {response.poll.title}</p>
         <dl><div><dt>Année du premier placement</dt><dd>{response.placementYear ?? "Non renseignée"}</dd></div><div><dt>Retour au foyer déclaré</dt><dd>{response.returnHome ? optionLabel(returnHomeOptions, response.returnHome) : "Non renseigné (ou ancienne contribution)"}</dd></div></dl>
         <dl><div><dt>Résidence</dt><dd>{optionLabel(residenceOptions, response.residence)}</dd></div><div><dt>ASE</dt><dd>{optionLabel(aseOptions, response.ase)}</dd></div><div><dt>Juges — privé</dt><dd>{response.judgeNames || "Non renseigné"}</dd></div><div><dt>Intervenants sociaux — privé</dt><dd>{response.socialWorkerNames || "Non renseigné"}</dd></div><div><dt>Juridiction déclarée — privé</dt><dd>{response.jurisdictionReported || "Non renseignée"}</dd></div></dl>
         <form action={moderate}><input type="hidden" name="id" value={response.id} /><label className="field-label" htmlFor={`jurisdiction-${response.id}`}>Juridiction institutionnelle vérifiée pour le comptage public</label><select id={`jurisdiction-${response.id}`} name="jurisdictionId" defaultValue={response.jurisdictionId || ""}><option value="">Non rattachée — aucun comptage par juridiction</option>{jurisdictions.map((jurisdiction) => <option key={jurisdiction.id} value={jurisdiction.id}>{jurisdiction.name}</option>)}</select><div className="admin-buttons"><button name="decision" value="APPROVED" className="button button-small">Approuver / mettre à jour</button><button name="decision" value="REJECTED" className="button button-small">Rejeter</button><button name="decision" value="PENDING" className="button button-small">Remettre en attente</button></div><details><summary>Suppression définitive</summary><p>Cette action retire immédiatement la réponse des comptages actifs.</p><button name="decision" value="DELETE" className="button button-small button-primary">Confirmer la suppression définitive</button></details></form>
       </article>)}</div>
-      <nav className="admin-pagination" aria-label="Pagination des réponses">{page > 1 && <Link href={`/admin/sondage?status=${status}&page=${page - 1}`}>← Précédent</Link>}<span>Page {page}</span>{page * 25 < total && <Link href={`/admin/sondage?status=${status}&page=${page + 1}`}>Suivant →</Link>}</nav>
+      <nav className="admin-pagination" aria-label="Pagination des réponses">{page > 1 && <Link href={`/admin/sondage?status=${status}&page=${page - 1}${filter}`}>← Précédent</Link>}<span>Page {page}</span>{page * 25 < total && <Link href={`/admin/sondage?status=${status}&page=${page + 1}${filter}`}>Suivant →</Link>}</nav>
     </section>
     <section className="admin-section"><h2>Référentiel des juridictions</h2><p>Ajoutez uniquement un nom officiel de tribunal ou de cour. Il sera potentiellement public à partir de dix réponses approuvées. Vérifiez le libellé dans l’<a href="https://www.justice.fr/annuaire" target="_blank" rel="noopener noreferrer">annuaire de la justice (nouvel onglet)</a>.</p><form action={addJurisdiction} className="admin-inline-form"><label className="field-label" htmlFor="jurisdiction-name">Nom institutionnel, sans personne physique</label><input id="jurisdiction-name" name="name" minLength={5} maxLength={200} required placeholder="Tribunal judiciaire de …" /><button className="button button-small">Ajouter une juridiction</button></form><div className="admin-users">{jurisdictions.map((jurisdiction) => <details key={jurisdiction.id}><summary>{jurisdiction.name} — gérer</summary><form action={updateJurisdiction}><input type="hidden" name="id" value={jurisdiction.id} /><label className="field-label" htmlFor={`rename-${jurisdiction.id}`}>Libellé institutionnel</label><input id={`rename-${jurisdiction.id}`} name="name" defaultValue={jurisdiction.name} minLength={5} maxLength={200} required /><button className="button button-small" name="operation" value="RENAME">Renommer</button><details><summary>Supprimer du référentiel</summary><p>Les contributions restent conservées, mais perdent leur rattachement public à cette juridiction.</p><button className="button button-small button-primary" name="operation" value="DELETE">Confirmer la suppression du rattachement</button></details></form></details>)}</div></section>
     <section className="admin-section"><h2>Publication & pétition</h2><form action={saveSettings}><label className="consent-label"><input type="checkbox" name="statsPublished" defaultChecked={settings?.statsPublished || false} /><span>Ouvrir les statistiques publiques (seuil fixe : dix réponses approuvées par groupe).</span></label><label className="field-label" htmlFor="petition-title">Titre de la mobilisation</label><input id="petition-title" name="petitionTitle" minLength={5} maxLength={200} required defaultValue={settings?.petitionTitle || "Préserver les liens, faire évoluer la protection de l’enfance"} /><label className="field-label" htmlFor="petition-url">Lien HTTPS de la pétition — facultatif</label><input id="petition-url" type="url" name="petitionUrl" maxLength={1000} defaultValue={settings?.petitionUrl || ""} placeholder="https://…" /><p className="field-help">Laisser vide conserve la mention « en préparation ». Aucun sondage n’est une signature de pétition.</p><button className="button button-primary">Enregistrer la publication</button></form></section>

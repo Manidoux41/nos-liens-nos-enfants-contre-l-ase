@@ -1,3 +1,5 @@
+import { EMAIL_CONSENT_VERSION } from "./polls.ts";
+
 export const departments = [
   ["01", "Ain"], ["02", "Aisne"], ["03", "Allier"], ["04", "Alpes-de-Haute-Provence"],
   ["05", "Hautes-Alpes"], ["06", "Alpes-Maritimes"], ["07", "Ardèche"], ["08", "Ardennes"],
@@ -65,7 +67,7 @@ export type SurveyAnswer = {
   jurisdiction: string;
   privateConsent: boolean;
   consent: true;
-  consentVersion: typeof CONSENT_VERSION | typeof LEGACY_CONSENT_VERSION;
+  consentVersion: typeof CONSENT_VERSION | typeof LEGACY_CONSENT_VERSION | typeof EMAIL_CONSENT_VERSION;
 };
 
 export function isSurveyAnswer(value: unknown): value is SurveyAnswer {
@@ -74,7 +76,7 @@ export function isSurveyAnswer(value: unknown): value is SurveyAnswer {
   const keys = Object.keys(record).sort().join(",");
   const legacy = record.consentVersion === LEGACY_CONSENT_VERSION
     && keys === "ase,consent,consentVersion,id,judgeNames,jurisdiction,privateConsent,residence,socialWorkerNames";
-  const current = record.consentVersion === CONSENT_VERSION
+  const current = (record.consentVersion === CONSENT_VERSION || record.consentVersion === EMAIL_CONSENT_VERSION)
     && keys === "ase,consent,consentVersion,id,judgeNames,jurisdiction,placementYear,privateConsent,residence,returnHome,socialWorkerNames"
     && (record.placementYear === null || (typeof record.placementYear === "number"
       && Number.isInteger(record.placementYear) && record.placementYear >= MIN_PLACEMENT_YEAR

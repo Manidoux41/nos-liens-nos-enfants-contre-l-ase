@@ -317,6 +317,10 @@ textarea { resize: vertical; }
 .stats-group ul { list-style: none; padding: 0; }
 .placement-fields { margin: 25px 0; padding: 20px; border: 1px solid var(--line); border-radius: 5px; }
 .placement-fields legend { padding-inline: 8px; font-size: 12px; color: var(--accent); }
+.standalone-survey { width: min(100%, 650px); margin: 35px auto 60px; }
+.category-editor summary { cursor: pointer; font-size: 14px; line-height: 1.8; }
+.category-editor .consent-label { margin-top: 20px; }
+.category-editor > form, .dashboard-panel > form { min-width: 0; }
 .statistics-page { max-width: 1160px; }
 .statistics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-block: 30px; align-items: start; }
 .statistics-card { border: 1px solid var(--line); padding: 28px; border-radius: 6px; background: #fffefa; min-width: 0; }

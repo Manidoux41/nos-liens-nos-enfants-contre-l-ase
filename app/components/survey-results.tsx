@@ -4,18 +4,19 @@ import { publicStatistics } from "@/lib/public-statistics";
 import { logFailure } from "@/lib/request-security";
 import { StatisticsChart, type ChartState } from "./statistics-chart";
 import { RefreshResults } from "./refresh-results";
+import { DEFAULT_POLL_ID } from "@/lib/polls";
 
-export async function SurveyResults({ compact = false }: { compact?: boolean }) {
+export async function SurveyResults({ compact = false, pollId = DEFAULT_POLL_ID }: { compact?: boolean; pollId?: string }) {
   await connection();
   let data: Awaited<ReturnType<typeof publicStatistics>> | undefined;
   let state: ChartState = "unavailable";
   try {
-    data = await publicStatistics();
+    data = await publicStatistics(pollId);
     state = data.published ? "ready" : "closed";
   } catch (error) { logFailure("public-statistics", error); }
   return <div className="survey-results">
     {state === "unavailable" && <p role="alert" className="form-error">Les statistiques sont momentanément indisponibles. Aucun chiffre ne peut être affiché ; réessayez plus tard. Les cadres ci-dessous présentent les vues prévues, sans données inventées.</p>}
-    {state === "closed" && <div className="notice"><p>La publication des statistiques n’est pas encore ouverte. Les réponses restent privées et soumises à modération. Il ne s’agit pas d’une panne de lecture.</p><p>Un administrateur doit activer « Ouvrir les statistiques publiques » dans <Link className="text-link" href="/admin/sondage">Sondage & réglages</Link>. Chaque groupe doit ensuite compter au moins dix réponses approuvées et non expirées pour apparaître.</p></div>}
+    {state === "closed" && <div className="notice"><p>La publication des statistiques n’est pas encore ouverte. Les réponses restent privées et soumises à modération. Il ne s’agit pas d’une panne de lecture.</p><p>Un administrateur doit activer « Ouvrir les statistiques publiques » dans <Link className="text-link" href="/admin/sondage">Sondage & réglages</Link> et autoriser les résultats de ce sondage dans <Link className="text-link" href="/admin/sondages">Gérer les sondages</Link>. Chaque groupe doit ensuite compter au moins dix réponses approuvées et non expirées pour apparaître.</p></div>}
     <RefreshResults unavailable={state === "unavailable"} />
     <div className="statistics-grid">
       <StatisticsChart state={state} title="Département de l’ASE" description="Les départements de rattachement déclarés, indépendamment du lieu de résidence." values={data?.ase || []} />

@@ -17,7 +17,8 @@ Node.js **22.18+** est requis. Les commandes de test et les scripts utilisent le
 1. Copier `.env.example` vers `.env` (ce dernier est ignoré par Git).
 2. Renseigner `DATABASE_URL`, `POSTGRES_URL` ou `PRISMA_DATABASE_URL` avec une URL PostgreSQL de développement. `DIRECT_URL` reste une surcharge facultative pour les migrations.
 3. Définir `SITE_ORIGIN=http://localhost:3000` et `BETTER_AUTH_URL` avec la même valeur.
-4. Générer deux secrets différents d’au moins 32 caractères pour `BETTER_AUTH_SECRET` et `CRON_SECRET` : par exemple avec `openssl rand -base64 48`. Ne jamais les commiter.
+4. Générer trois secrets différents d’au moins 32 caractères pour `BETTER_AUTH_SECRET`, `CRON_SECRET` et `SURVEY_EMAIL_SECRET` : par exemple avec `openssl rand -base64 48`. Ne jamais les commiter.
+5. Configurer `RESEND_API_KEY` et `SURVEY_EMAIL_FROM` avec un expéditeur sur un domaine vérifié dans Resend. Sans ces variables, l’envoi de code est explicitement indisponible ; aucun contournement de vérification n’est proposé.
 
 ```sh
 npm ci
@@ -49,6 +50,8 @@ Les administrateurs créent d’autres administrateurs dans la section **Sondage
 - **Enregistrer en brouillon / dépublier** retire l’article du journal ; **Enregistrer et publier** rend le texte et ses médias associés accessibles. La suppression d’article demande confirmation et conserve les fichiers dans la médiathèque. Les modifications concurrentes sont refusées plutôt que d’écraser un travail plus récent.
 - `/admin/medias` : importer des images **JPEG, PNG, WebP** et des **PDF**, de **4 Mio maximum** (4 194 304 octets), modifier titre/description accessible/légende, voir les articles liés et supprimer les fichiers inutilisés. Pas de SVG, HTML ou éditeur HTML. La vérification de signature ne remplace pas un antivirus ni une revue du document.
 - `/admin/sondage` : modération, juridictions, publication statistique, pétition, comptes et journal d’audit.
+- `/admin/sondages` : créer des sondages reprenant les questions existantes avec titre, adresse et présentation personnalisés ; conserver en brouillon, publier, clôturer ou masquer les résultats. Les réponses ne sont jamais copiées. La modération permet de filtrer par sondage.
+- `/sondages` et `/sondages/[slug]` : catalogue et participation aux sondages publiés ; les sondages clôturés restent consultables sans accepter de réponses, les brouillons sont invisibles.
 - `/articles` et `/articles/[slug]` : journal public par catégorie ; seuls les articles publiés sont accessibles. Le récit initial de l’accueil reste indépendant du journal.
 
 Pour la médiathèque, créer un **store Vercel Blob privé** et définir son `BLOB_READ_WRITE_TOKEN` dans les variables serveur (et dans `.env` pour les imports locaux). Ne jamais utiliser `NEXT_PUBLIC_` pour ce secret, ni un store public. Sans token, l’interface signale la configuration manquante, sans simuler un import réussi.
@@ -58,6 +61,18 @@ Les fichiers sont servis via `/medias/[id]`, sans exposer le chemin Blob au navi
 Un média lié ne peut pas être supprimé ; le détacher de tous ses articles d’abord. Si le stockage est indisponible pendant une suppression, le fichier est marqué en cours de suppression et la médiathèque propose de réessayer. Ne pas supprimer manuellement ses lignes en base. En cas d’échec de nettoyage après un import non confirmé, l’erreur `media-upload-orphan-cleanup` est journalisée : contrôler les fichiers orphelins dans le store privé.
 
 La migration additive `20261022060000_editorial` doit être appliquée avant cette version avec `npm run db:migrate`. Aucun compte administrateur n’est créé par la migration.
+
+### Participation vérifiée par e-mail
+
+Appliquer également la migration additive **`20261022080000_verified_polls` avant le déploiement**. Elle rattache les réponses existantes au sondage initial, sans effacement et sans inventer d’adresse ou de vérification. Le sondage initial reste publié ; le réglage général de publication des statistiques n’est pas modifié.
+
+Chaque nouvelle réponse requiert un code Resend de huit chiffres (dix minutes, cinq essais maximum). Seule une empreinte HMAC de l’adresse normalisée en minuscules est conservée par sondage, avec une contrainte unique en base. Les adresses en clair et les codes ne sont ni stockés ni montrés dans l’administration. Le consentement passe en version `2026-10-22-email-v4` ; les anciens onglets doivent être rechargés, ils ne peuvent pas envoyer une réponse non vérifiée. Les réponses historiques restent non vérifiées.
+
+Une adresse peut répondre à plusieurs sondages, mais une seule fois à chacun, même si sa réponse est rejetée ou en attente. La suppression complète ou l’expiration libère cette possibilité ; le code privé de **suppression** reste indispensable et ne doit pas être confondu avec le code e-mail. Ce contrôle ne prouve pas une personne unique : les alias et boîtes distinctes ne sont pas fusionnés. Ne jamais présenter ces contributions comme des électeurs uniques.
+
+**Garder `SURVEY_EMAIL_SECRET` stable**, distinct du secret administrateur : changer cette clé change les empreintes, rend les vérifications en cours inutilisables et empêche de reconnaître les anciennes participations. L’application n’ayant pas conservé les e-mails, une rotation transparente est impossible ; planifier une transition spécifique avant toute rotation. Les quotas d’envoi sont partagés en PostgreSQL (une demande/minute et cinq/heure par adresse et sondage, cinquante/heure globalement). Les codes expirés sont purgés quotidiennement. Les résultats exigent à la fois l’autorisation générale, l’autorisation du sondage et dix réponses approuvées non expirées par groupe ; aucune agrégation entre sondages.
+
+Avant ouverture, vérifier le domaine expéditeur, les engagements et transferts éventuels de Resend, et compléter la politique de confidentialité. Les tests locaux ne doivent jamais envoyer de vrais e-mails.
 
 ## Déploiement Vercel + Neon
 
@@ -72,6 +87,8 @@ La migration additive `20261022060000_editorial` doit être appliquée avant cet
    - `BETTER_AUTH_URL` : même origine ;
    - `BETTER_AUTH_SECRET` : secret aléatoire, stable, au moins 32 caractères ;
    - `CRON_SECRET` : secret aléatoire distinct, au moins 32 caractères ;
+   - `SURVEY_EMAIL_SECRET` : clé HMAC aléatoire dédiée et stable, au moins 32 caractères ;
+   - `RESEND_API_KEY` et `SURVEY_EMAIL_FROM` : clé serveur Resend et expéditeur vérifié ;
    - `BLOB_READ_WRITE_TOKEN` : token du store Vercel Blob **privé** pour la médiathèque.
 5. Appliquer `npm run db:migrate` **depuis un environnement d’exploitation sécurisé**, avec `DIRECT_URL` de la base cible, avant le déploiement de la nouvelle version. Les migrations sont versionnées. Elles ne sont pas exécutées automatiquement par les builds Preview.
 6. Le build Vercel exécute `npm run build` (génération Prisma puis compilation Next.js). Le `postinstall` génère également le client Prisma.
@@ -97,7 +114,7 @@ Les sessions durent douze heures, sans cache de session côté client. Les limit
 
 ### Réponses
 
-`POST /api/sondage` valide les 101 départements, les options de non-réponse, les limites de texte et les consentements :
+`POST /api/sondage/code` reçoit `{ email, pollId }` et retourne uniquement `{ challengeId }` après acceptation de l’envoi par Resend. `POST /api/sondage` exige l’enveloppe `{ answer, pollId, email, challengeId, code }`, avec le consentement e-mail v4, et valide les 101 départements, les options de non-réponse, les limites de texte et les consentements :
 
 - département de résidence et ASE distincts ;
 - année du **premier placement parmi les enfants** facultative (`placementYear`, entier de 1900 à l’année UTC actuelle, ou `null`) ;
@@ -107,7 +124,7 @@ Les sessions durent douze heures, sans cache de session côté client. Les limit
 - consentement général à la collecte et aux statistiques, accord distinct lorsque des noms professionnels sont fournis ;
 - aucun document de procédure, récit d’accusation, identité de mineur ou donnée de santé ne doit être saisi.
 
-Un code aléatoire de suppression est généré dans le navigateur. Seule son empreinte SHA-256 est stockée ; l’identifiant interne de la contribution est différent. Une nouvelle tentative identique avec le même code est idempotente, même en concurrence. Les doublons entre plusieurs visites restent possibles.
+Un code aléatoire de suppression est généré dans le navigateur. Seule son empreinte SHA-256 est stockée ; l’identifiant interne de la contribution est différent. Une nouvelle tentative identique avec le même code est idempotente. La contrainte unique `(pollId, emailHash)` empêche les doublons de la même adresse, y compris en concurrence, sans prétendre reconnaître une personne utilisant plusieurs adresses.
 
 `DELETE /api/sondage` retire la réponse et ses champs privés avec le code. La page `/confidentialite` contient ce formulaire. Aucun endpoint public ne liste les réponses, les noms ou les empreintes. Aucun export public de données brutes n’est proposé.
 
@@ -119,7 +136,7 @@ Un code aléatoire de suppression est généré dans le navigateur. Seule son em
 - Le seuil public est fixe à **10 réponses par groupe**, avec résidence, ASE, juridiction, année du premier placement et retour au foyer affichés séparément, sans tableau croisé, petit effectif ou total général.
 - L’accueil, sous le formulaire, affiche déjà les cadres des graphiques ASE / années / retours. `/statistiques` ajoute résidence et juridictions. Chaque vue propose un graphique et un tableau accessible : barres horizontales, années classées chronologiquement et anneau des retours. Aucun graphique ne fabrique d’effectif lorsque la publication est fermée, la base indisponible ou le seuil non atteint.
 - Les graphiques comptent des **contributions**, pas des enfants. L’anneau représente uniquement les catégories publiables ; ce n’est pas un taux global de retour. Ni les groupes masqués, ni les non-réponses, ni les options `NOT_APPLICABLE` / `UNDISCLOSED` ne sont déduits d’un total. Une année absente n’équivaut pas à zéro et l’année du premier placement ne mesure pas la durée continue d’un placement.
-- Les nouvelles questions utilisent le consentement `2026-10-22-parcours-v3`. Les requêtes des deux nouvelles vues exigent cette version. Les anciennes requêtes `2026-10-22-statistiques-v2` restent acceptées sans nouveaux champs (compatibilité des onglets déjà ouverts), mais ne peuvent enrichir une réponse ou autoriser implicitement les nouveaux comptages. Les anciennes lignes conservent `null` pour les deux champs.
+- Les vues année/retour exigent le consentement `2026-10-22-parcours-v3` ou `2026-10-22-email-v4`. Les anciennes lignes `2026-10-22-statistiques-v2` ne peuvent autoriser implicitement les nouveaux comptages et conservent `null` pour ces champs. Seul le consentement v4 est accepté pour les nouvelles soumissions HTTP ; aucun ancien onglet ne contourne la vérification e-mail.
 - Les options « inconnu », « hors de France », « non-réponse » ne sont pas affichées comme départements.
 - Les noms des juges et intervenants ne participent à aucune requête de statistiques publiques. Aucun classement de personnes.
 - La publication est activée explicitement dans l’administration. Les requêtes publiques sont effectuées à la demande et dans une transaction cohérente ; un retrait est pris en compte lors du prochain chargement.
@@ -168,7 +185,7 @@ npm run build
 Tests PostgreSQL et HTTP avec des données entièrement synthétiques, sur une base **locale jetable distincte** nommée `ase_app_test`, au port de votre choix :
 
 ```sh
-DATABASE_URL=postgresql://USER@127.0.0.1:PORT/ase_app_test npm run db:migrate
+DATABASE_URL=postgresql://USER@127.0.0.1:PORT/ase_app_test DIRECT_URL=postgresql://USER@127.0.0.1:PORT/ase_app_test npm run db:migrate
 TEST_DATABASE_URL=postgresql://USER@127.0.0.1:PORT/ase_app_test npm run test:http
 ```
 

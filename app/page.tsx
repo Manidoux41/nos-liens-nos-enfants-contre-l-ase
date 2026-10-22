@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { Header, ShareButton } from "./components/navigation";
-import { Survey } from "./components/survey";
+import { PublishedSurvey } from "./components/published-survey";
 import { SurveyResults } from "./components/survey-results";
 import { chapters } from "@/lib/story";
 
@@ -74,7 +74,7 @@ export default function Home() {
 
         <section id="sondage" className="survey-section section-space section-width">
           <div className="survey-intro"><p className="eyebrow">02 — VOTRE VOIX COMPTE</p><h2>Des histoires différentes.<br /><em>Une parole commune.</em></h2><p>Indiquez votre département, l’ASE dont vous dépendez et, si vous le souhaitez, l’année du premier placement de vos enfants, leur retour au foyer et les juridictions ou professionnels concernés. Ces contributions aideront à préparer des statistiques citoyennes et une future pétition.</p><ul className="survey-benefits"><li><span aria-hidden="true">◷</span> Deux étapes, des précisions facultatives</li><li><span aria-hidden="true">◇</span> Les noms restent strictement privés</li><li><span aria-hidden="true">♡</span> Une participation libre, révocable par code</li></ul><p className="survey-footnote">Seules les réponses approuvées sont comptabilisées. Aucun groupe de moins de dix réponses n’est publié. Ce sondage ne mesure pas les placements abusifs et n’établit aucune responsabilité individuelle.</p><Link className="text-link" href="/statistiques">Comprendre les statistiques →</Link></div>
-          <Suspense fallback={<p role="status">Chargement du sondage…</p>}><Survey /></Suspense>
+          <Suspense fallback={<p role="status">Chargement du sondage…</p>}><PublishedSurvey /></Suspense>
         </section>
         <section id="resultats-sondage" className="section-width section-space"><p className="eyebrow">LES PARCOURS EN GRAPHIQUES</p><h2>Recueillir la parole.<br /><em>Donner à voir les parcours.</em></h2><p>Barres par département et par année, répartition des retours au foyer et tableaux accessibles. Les résultats apparaissent après ouverture de la publication et dès que les seuils de confidentialité sont atteints.</p><Suspense fallback={<p role="status">Chargement des graphiques…</p>}><SurveyResults compact /></Suspense></section>
 

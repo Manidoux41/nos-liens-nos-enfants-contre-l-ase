@@ -34,7 +34,11 @@ export async function moderate(data: FormData) {
   const jurisdictionId = field(data, "jurisdictionId");
   if (!UUID_PATTERN.test(id) || !["APPROVED", "REJECTED", "PENDING", "DELETE"].includes(decision) || (jurisdictionId && !UUID_PATTERN.test(jurisdictionId))) redirect("/admin/sondage?error=input");
   await mutate("moderation", () => database().$transaction(async (transaction) => {
-    if (decision === "DELETE") await transaction.surveyResponse.delete({ where: { id } });
+    if (decision === "DELETE") {
+      const response = await transaction.surveyResponse.findUniqueOrThrow({ where: { id }, select: { pollId: true, emailHash: true } });
+      if (response.emailHash) await transaction.surveyEmailChallenge.deleteMany({ where: { pollId: response.pollId, emailHash: response.emailHash } });
+      await transaction.surveyResponse.delete({ where: { id } });
+    }
     else await transaction.surveyResponse.update({
       where: { id },
       data: { status: decision as "APPROVED" | "REJECTED" | "PENDING", jurisdictionId: jurisdictionId || null, moderatedAt: new Date(), moderatedById: actor.id },
