@@ -15,7 +15,7 @@ Node.js **22.18+** est requis. Les commandes de test et les scripts utilisent le
 ## Développement local
 
 1. Copier `.env.example` vers `.env` (ce dernier est ignoré par Git).
-2. Renseigner `DATABASE_URL` et `DIRECT_URL` avec une base PostgreSQL de développement.
+2. Renseigner `DATABASE_URL`, `POSTGRES_URL` ou `PRISMA_DATABASE_URL` avec une URL PostgreSQL de développement. `DIRECT_URL` reste une surcharge facultative pour les migrations.
 3. Définir `SITE_ORIGIN=http://localhost:3000` et `BETTER_AUTH_URL` avec la même valeur.
 4. Générer deux secrets différents d’au moins 32 caractères pour `BETTER_AUTH_SECRET` et `CRON_SECRET` : par exemple avec `openssl rand -base64 48`. Ne jamais les commiter.
 
@@ -46,7 +46,8 @@ Les administrateurs créent d’autres administrateurs dans l’espace privé, p
 3. Utiliser une branche/base **distincte** pour les Preview et le développement. Ne pas connecter des déploiements non validés aux réponses de production.
 4. Définir les variables Vercel :
    - `DATABASE_URL` : URL Neon **poolée**, TLS activé ;
-   - `DIRECT_URL` : URL **directe** pour les migrations ;
+   - `DIRECT_URL` : URL **directe** pour les migrations, facultative si l’une des variables ci-dessous fournit déjà une connexion adaptée ;
+   - `POSTGRES_URL` ou `PRISMA_DATABASE_URL` : alternatives à `DATABASE_URL`, au format PostgreSQL ;
    - `SITE_ORIGIN` : origine publique exacte, par exemple `https://votre-site.fr`, sans barre finale ;
    - `BETTER_AUTH_URL` : même origine ;
    - `BETTER_AUTH_SECRET` : secret aléatoire, stable, au moins 32 caractères ;
@@ -55,6 +56,17 @@ Les administrateurs créent d’autres administrateurs dans l’espace privé, p
 6. Le build Vercel exécute `npm run build` (génération Prisma puis compilation Next.js). Le `postinstall` génère également le client Prisma.
 7. Exécuter une fois le bootstrap depuis un environnement sécurisé connecté à la bonne base, sans exposer les variables de bootstrap au déploiement.
 8. Tester `/admin/connexion`, une contribution de test, la modération, le retrait par code et `/statistiques` avant d’ouvrir le site.
+
+### Choix de l’URL pour les migrations
+
+La commande reste `npm run db:migrate`. Prisma charge le fichier `.env` et utilise aussi les variables déjà présentes dans l’environnement (notamment celles de Vercel).
+
+- **Migrations :** première URL PostgreSQL disponible dans l’ordre `DIRECT_URL`, `DATABASE_URL`, `POSTGRES_URL`, `PRISMA_DATABASE_URL`.
+- **Application, bootstrap et maintenance :** ordre `DATABASE_URL`, `POSTGRES_URL`, `PRISMA_DATABASE_URL`, `DIRECT_URL`.
+- Les variables vides sont ignorées. Une URL mal formée ou de protocole incorrect produit une erreur explicite, sans afficher ses identifiants ni basculer silencieusement sur une autre base.
+- `PRISMA_DATABASE_URL` est parfois une URL proxy `prisma://` ou `prisma+postgres://`, et non une connexion PostgreSQL. Ces URL sont ignorées au profit d’une URL `postgres://` ou `postgresql://` disponible dans les autres variables. Si seule une URL proxy est fournie, une erreur demande la connexion PostgreSQL du fournisseur. L’adaptateur actuel n’utilise pas Prisma Accelerate.
+- Pour migrer, privilégier l’URL **directe**, pas une URL PgBouncer transactionnelle : la placer dans `DIRECT_URL` si l’application utilise par ailleurs une URL poolée. Ne pas transformer manuellement une URL proxy en URL directe.
+- Si plusieurs variables sont définies, vérifier qu’elles ciblent bien la même base, ou ne conserver que celles nécessaires. La commande ne migre qu’une base, jamais toutes les URL successivement.
 
 `vercel.json` prévoit le cron de rétention quotidien à 03:00 UTC et les en-têtes de protection des pages privées. Vercel transmet `CRON_SECRET` comme Bearer token ; sans secret valide, la maintenance est refusée. Vérifier dans le tableau de bord que le cron est réellement exécuté et superviser les échecs.
 
