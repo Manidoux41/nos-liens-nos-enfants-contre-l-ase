@@ -12,6 +12,7 @@ export function Header() {
         <button className="menu-toggle" type="button" aria-expanded={open} aria-controls="main-nav" onClick={() => setOpen(!open)}>{open ? "Fermer ×" : "Menu ☰"}</button>
         <nav id="main-nav" className={open ? "main-nav is-open" : "main-nav"} aria-label="Navigation principale">
           <Link href="/#notre-histoire" onClick={() => setOpen(false)}>Notre histoire</Link>
+          <Link href="/articles" onClick={() => setOpen(false)}>Le journal</Link>
           <Link href="/#ressources" onClick={() => setOpen(false)}>Liens & ressources</Link>
           <Link href="/statistiques" onClick={() => setOpen(false)}>Statistiques & pétition</Link>
           <Link href="/#sondage" className="button button-small" onClick={() => setOpen(false)}>Participer au sondage <span aria-hidden="true">↗</span></Link>

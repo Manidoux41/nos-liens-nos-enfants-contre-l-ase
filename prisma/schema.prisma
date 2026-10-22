@@ -134,3 +134,58 @@ model RateLimit {
   count       Int
   lastRequest BigInt
 }
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Category {
+  id       String    @id @default(uuid()) @db.Uuid
+  name     String    @unique @db.VarChar(100)
+  slug     String    @unique @db.VarChar(120)
+  articles Article[]
+}
+
+model Article {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String        @db.VarChar(180)
+  slug        String        @unique @db.VarChar(200)
+  excerpt     String        @db.VarChar(500)
+  content     String
+  status      ArticleStatus @default(DRAFT)
+  categoryId  String        @db.Uuid
+  category    Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  media       ArticleMedia[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  publishedAt DateTime?
+  version     Int           @default(1)
+
+  @@index([status, publishedAt])
+  @@index([categoryId, status])
+}
+
+model Media {
+  id         String         @id @default(uuid()) @db.Uuid
+  title      String         @db.VarChar(180)
+  alt        String         @db.VarChar(300)
+  caption    String         @db.VarChar(500)
+  pathname   String         @unique
+  mimeType   String         @db.VarChar(50)
+  size       Int
+  deleting   Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  articles   ArticleMedia[]
+}
+
+model ArticleMedia {
+  articleId String  @db.Uuid
+  mediaId   String  @db.Uuid
+  position  Int
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  media     Media   @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@id([articleId, mediaId])
+  @@index([mediaId])
+}

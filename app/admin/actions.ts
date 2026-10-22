@@ -20,11 +20,11 @@ async function mutate(action: string, operation: () => Promise<unknown>) {
   try { await operation(); }
   catch (error) {
     logFailure(`admin-${action}`, error);
-    redirect("/admin?error=operation");
+    redirect("/admin/sondage?error=operation");
   }
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   revalidatePath("/statistiques");
-  redirect("/admin?success=1");
+  redirect("/admin/sondage?success=1");
 }
 
 export async function moderate(data: FormData) {
@@ -32,7 +32,7 @@ export async function moderate(data: FormData) {
   const id = field(data, "id");
   const decision = field(data, "decision");
   const jurisdictionId = field(data, "jurisdictionId");
-  if (!UUID_PATTERN.test(id) || !["APPROVED", "REJECTED", "PENDING", "DELETE"].includes(decision) || (jurisdictionId && !UUID_PATTERN.test(jurisdictionId))) redirect("/admin?error=input");
+  if (!UUID_PATTERN.test(id) || !["APPROVED", "REJECTED", "PENDING", "DELETE"].includes(decision) || (jurisdictionId && !UUID_PATTERN.test(jurisdictionId))) redirect("/admin/sondage?error=input");
   await mutate("moderation", () => database().$transaction(async (transaction) => {
     if (decision === "DELETE") await transaction.surveyResponse.delete({ where: { id } });
     else await transaction.surveyResponse.update({
@@ -46,7 +46,7 @@ export async function moderate(data: FormData) {
 export async function addJurisdiction(data: FormData) {
   const actor = await requireAdmin();
   const name = field(data, "name").replace(/\s+/g, " ");
-  if (name.length < 5 || name.length > 200 || /[<>\u0000-\u001f]/.test(name)) redirect("/admin?error=input");
+  if (name.length < 5 || name.length > 200 || /[<>\u0000-\u001f]/.test(name)) redirect("/admin/sondage?error=input");
   await mutate("jurisdiction", () => database().$transaction(async (transaction) => {
     const jurisdiction = await transaction.jurisdiction.create({ data: { name } });
     await transaction.auditLog.create({ data: { actorId: actor.id, action: "JURISDICTION_CREATE", targetId: jurisdiction.id } });
@@ -59,7 +59,7 @@ export async function updateJurisdiction(data: FormData) {
   const operation = field(data, "operation");
   const name = field(data, "name").replace(/\s+/g, " ");
   if (!UUID_PATTERN.test(id) || !["RENAME", "DELETE"].includes(operation)
-    || (operation === "RENAME" && (name.length < 5 || name.length > 200 || /[<>\u0000-\u001f]/.test(name)))) redirect("/admin?error=input");
+    || (operation === "RENAME" && (name.length < 5 || name.length > 200 || /[<>\u0000-\u001f]/.test(name)))) redirect("/admin/sondage?error=input");
   await mutate("update-jurisdiction", () => database().$transaction(async (transaction) => {
     if (operation === "DELETE") await transaction.jurisdiction.delete({ where: { id } });
     else await transaction.jurisdiction.update({ where: { id }, data: { name } });
@@ -71,7 +71,7 @@ export async function saveSettings(data: FormData) {
   const actor = await requireAdmin();
   const petitionUrl = field(data, "petitionUrl");
   const petitionTitle = field(data, "petitionTitle");
-  if (!validPetitionUrl(petitionUrl) || petitionUrl.length > 1000 || petitionTitle.length < 5 || petitionTitle.length > 200) redirect("/admin?error=input");
+  if (!validPetitionUrl(petitionUrl) || petitionUrl.length > 1000 || petitionTitle.length < 5 || petitionTitle.length > 200) redirect("/admin/sondage?error=input");
   await mutate("settings", () => database().$transaction(async (transaction) => {
     const values = { petitionUrl: petitionUrl || null, petitionTitle, statsPublished: data.get("statsPublished") === "on" };
     await transaction.siteSettings.upsert({ where: { id: 1 }, create: { id: 1, ...values }, update: values });
@@ -83,7 +83,7 @@ export async function addAdministrator(data: FormData) {
   const actor = await requireAdmin();
   const email = field(data, "email").toLowerCase();
   const password = data.get("password");
-  if (typeof password !== "string" || !validCredentials(email, password)) redirect("/admin?error=input");
+  if (typeof password !== "string" || !validCredentials(email, password)) redirect("/admin/sondage?error=input");
   await mutate("create-account", () => createAdmin(email, password, actor.id));
 }
 
@@ -92,8 +92,8 @@ export async function updateAdministrator(data: FormData) {
   const id = field(data, "id");
   const operation = field(data, "operation");
   const password = data.get("password");
-  if (!id || id === actor.id || !["DISABLE", "ENABLE", "PASSWORD"].includes(operation)) redirect("/admin?error=input");
-  if (operation === "PASSWORD" && (typeof password !== "string" || password.length < 16 || password.length > 128)) redirect("/admin?error=input");
+  if (!id || id === actor.id || !["DISABLE", "ENABLE", "PASSWORD"].includes(operation)) redirect("/admin/sondage?error=input");
+  if (operation === "PASSWORD" && (typeof password !== "string" || password.length < 16 || password.length > 128)) redirect("/admin/sondage?error=input");
   const passwordHash = operation === "PASSWORD" && typeof password === "string" ? await hashPassword(password) : null;
   await mutate("update-account", () => database().$transaction(async (transaction) => {
     if (passwordHash) await transaction.account.updateMany({ where: { userId: id, providerId: "credential" }, data: { password: passwordHash } });
@@ -108,11 +108,11 @@ export async function changeOwnPassword(data: FormData) {
   const currentPassword = data.get("currentPassword");
   const password = data.get("password");
   if (typeof currentPassword !== "string" || currentPassword.length > 128 || typeof password !== "string"
-    || !validCredentials(actor.email, password)) redirect("/admin?error=input");
+    || !validCredentials(actor.email, password)) redirect("/admin/sondage?error=input");
   const { consumeQuota } = await import("@/lib/request-security");
-  if (!(await consumeQuota(`password-change:${actor.id}`, 5, 900))) redirect("/admin?error=operation");
+  if (!(await consumeQuota(`password-change:${actor.id}`, 5, 900))) redirect("/admin/sondage?error=operation");
   const account = await database().account.findFirst({ where: { userId: actor.id, providerId: "credential" }, select: { password: true } });
-  if (!account?.password || !(await verifyPassword({ hash: account.password, password: currentPassword }))) redirect("/admin?error=input");
+  if (!account?.password || !(await verifyPassword({ hash: account.password, password: currentPassword }))) redirect("/admin/sondage?error=input");
   const passwordHash = await hashPassword(password);
   try {
     await database().$transaction([
@@ -122,7 +122,7 @@ export async function changeOwnPassword(data: FormData) {
     ]);
   } catch (error) {
     logFailure("admin-own-password", error);
-    redirect("/admin?error=operation");
+    redirect("/admin/sondage?error=operation");
   }
   redirect("/admin/connexion");
 }

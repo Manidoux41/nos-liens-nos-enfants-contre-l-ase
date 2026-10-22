@@ -34,6 +34,9 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   let cookie = "";
   const fixtures = [];
   const jurisdictionId = randomUUID();
+  const categorySlug = `editorial-${randomUUID()}`;
+  const articleSlug = `article-${randomUUID()}`;
+  const mediaId = randomUUID();
   async function stop() {
     if (server && server.exitCode === null) {
       const exited = once(server, "exit"); server.kill("SIGTERM"); await exited;
@@ -42,7 +45,7 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   async function start() {
     server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", "3118", "--hostname", "127.0.0.1"], {
       cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: url, SITE_ORIGIN: origin, BETTER_AUTH_URL: origin, BETTER_AUTH_SECRET: secret, CRON_SECRET: cronSecret },
+      env: { ...process.env, DATABASE_URL: url, SITE_ORIGIN: origin, BETTER_AUTH_URL: origin, BETTER_AUTH_SECRET: secret, CRON_SECRET: cronSecret, BLOB_READ_WRITE_TOKEN: "" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     await new Promise((resolve, reject) => {
@@ -65,6 +68,9 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   }
   t.after(async () => {
     await stop();
+    await db.article.deleteMany({ where: { slug: articleSlug } });
+    await db.category.deleteMany({ where: { slug: categorySlug } });
+    await db.media.deleteMany({ where: { id: mediaId } });
     await db.surveyResponse.deleteMany({ where: { deletionHash: { in: fixtures.map((value) => deletionHash(value.id)) } } });
     await db.jurisdiction.deleteMany({ where: { id: jurisdictionId } });
     await db.user.deleteMany({ where: { email: { in: [email, secondEmail] } } });
@@ -93,33 +99,116 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.equal((await fetch(`${origin}/api/cron/retention`)).status, 401);
   assert.equal((await send({ email, password }, { headers: { "Content-Type": "application/json", Origin: "https://example.invalid" } }, "/api/auth/sign-in/email")).status, 403);
   const badLogin = await send({ email, password: "incorrect-password" }, {}, "/api/auth/sign-in/email");
-  assert.equal(badLogin.status, 401);
+  assert.equal(badLogin.status, 401, `${await badLogin.clone().text()}\n${serverOutput}`);
   const login = await send({ email, password, rememberMe: false }, {}, "/api/auth/sign-in/email");
   assert.equal(login.status, 200, `${await login.clone().text()}\n${serverOutput}`);
   const setCookies = login.headers.getSetCookie();
   assert.ok(setCookies.some((value) => value.includes("HttpOnly") && value.includes("SameSite=Lax")));
   cookie = setCookies.map((value) => value.split(";")[0]).join("; ");
   assert.ok(cookie.includes("session_token="));
-  const dashboard = await (await fetch(`${origin}/admin`, { headers: { Cookie: cookie } })).text();
+  const overview = await (await fetch(`${origin}/admin`, { headers: { Cookie: cookie } })).text();
+  assert.match(overview, /Vos derniers articles/);
+  const dashboard = await (await fetch(`${origin}/admin/sondage`, { headers: { Cookie: cookie } })).text();
   assert.match(dashboard, new RegExp(email));
-  function findAction(html, marker) {
+  const actionRoutes = new Map();
+  function findAction(html, marker, route = "/admin/sondage") {
     const form = [...html.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/g)].map((match) => match[1]).find((content) => content.includes(marker));
     assert.ok(form, `real form found for ${marker}`);
     const name = form.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
     assert.ok(name, "real Next.js action found");
+    actionRoutes.set(name, route);
     return name;
   }
   async function act(action, fields, authenticated = true) {
     const data = new FormData();
     data.set(action, "");
-    for (const [key, value] of Object.entries(fields)) data.set(key, value);
-    return fetch(`${origin}/admin`, { method: "POST", headers: { Origin: origin, ...(authenticated ? { Cookie: cookie } : {}) }, body: data, redirect: "manual" });
+    for (const [key, value] of Object.entries(fields)) {
+      if (Array.isArray(value)) for (const item of value) data.append(key, item);
+      else data.set(key, value);
+    }
+    return fetch(`${origin}${actionRoutes.get(action) || "/admin/sondage"}`, { method: "POST", headers: { Origin: origin, ...(authenticated ? { Cookie: cookie } : {}) }, body: data, redirect: "manual" });
   }
+  const adminHtml = async (route) => (await fetch(`${origin}${route}`, { headers: { Cookie: cookie } })).text();
+  for (const route of ["/admin/articles", "/admin/categories", "/admin/medias", "/admin/articles/nouveau"]) {
+    assert.match(await (await fetch(`${origin}${route}`, { redirect: "manual" })).text(), /\/admin\/connexion/);
+  }
+  const categoryAction = findAction(await adminHtml("/admin/categories"), 'id="category-name"', "/admin/categories");
+  assert.match((await act(categoryAction, { name: "Catégorie synthétique", slug: categorySlug }, false)).headers.get("location"), /\/admin\/connexion/);
+  assert.equal(await db.category.count({ where: { slug: categorySlug } }), 0);
+  assert.match((await act(categoryAction, { name: "Catégorie synthétique", slug: categorySlug })).headers.get("location"), /success=1/);
+  const category = await db.category.findUniqueOrThrow({ where: { slug: categorySlug } });
+  const deleteCategoryAction = findAction(await adminHtml("/admin/categories"), "Je confirme la suppression.", "/admin/categories");
+  assert.match((await act(categoryAction, { id: category.id, name: "Catégorie renommée", slug: categorySlug })).headers.get("location"), /success=1/);
+  assert.equal((await db.category.findUniqueOrThrow({ where: { id: category.id } })).name, "Catégorie renommée");
+  await db.media.create({ data: { id: mediaId, title: "Média synthétique privé", alt: "Illustration de test", caption: "", pathname: `editorial-test/${mediaId}.png`, mimeType: "image/png", size: 20 } });
+  const deleteMediaAction = findAction(await adminHtml("/admin/medias"), "Confirmer la suppression", "/admin/medias");
+  const mediaRoute = `/medias/${mediaId}`;
+  assert.equal((await fetch(`${origin}${mediaRoute}`)).status, 404, "an unattached private file cannot be read anonymously");
+  assert.equal((await fetch(`${origin}/api/admin/medias`, { method: "POST", headers: { Origin: origin }, body: "not an image" })).status, 401);
+  const upload = (body, source = origin) => fetch(`${origin}/api/admin/medias`, { method: "POST", headers: { Origin: source, Cookie: cookie }, body });
+  assert.equal((await upload("<svg>not an accepted image</svg>")).status, 415);
+  assert.equal((await upload("invalid", "https://example.invalid")).status, 403);
+  assert.equal((await upload(Buffer.alloc(4194305))).status, 413, "enforce exact 4 MiB maximum");
+  const maxUpload = Buffer.alloc(4194304);
+  Buffer.from([137,80,78,71,13,10,26,10]).copy(maxUpload);
+  const unconfiguredUpload = await upload(maxUpload);
+  assert.equal(unconfiguredUpload.status, 503, "exactly 4 MiB passes size/signature validation, but cloud configuration is required");
+  assert.match((await unconfiguredUpload.json()).error, /BLOB_READ_WRITE_TOKEN/);
+  const createArticleAction = findAction(await adminHtml("/admin/articles/nouveau"), 'id="article-title"', "/admin/articles/nouveau");
+  const fields = { title: "ARTICLE_SYNTHETIQUE_CONFIDENTIEL", slug: articleSlug, excerpt: "Résumé éditorial synthétique de validation.", content: "Premier paragraphe synthétique.\n\n<script>contenu non exécuté</script>", categoryId: category.id, status: "DRAFT", mediaIds: [mediaId] };
+  assert.match((await act(createArticleAction, fields, false)).headers.get("location"), /\/admin\/connexion/);
+  assert.equal(await db.article.count({ where: { slug: articleSlug } }), 0);
+  assert.match((await act(createArticleAction, fields)).headers.get("location"), /success=1/);
+  let article = await db.article.findUniqueOrThrow({ where: { slug: articleSlug } });
+  const articlePath = `/admin/articles/${article.id}`;
+  assert.doesNotMatch(await (await fetch(`${origin}/articles`)).text(), /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  assert.doesNotMatch(await (await fetch(`${origin}/articles/${articleSlug}`)).text(), /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  assert.equal((await fetch(`${origin}${mediaRoute}`)).status, 404, "draft association does not publish a file");
+  assert.match((await act(deleteCategoryAction, { id: category.id, confirm: "on" })).headers.get("location"), /error=operation/);
+  assert.equal(await db.category.count({ where: { id: category.id } }), 1);
+  const saveArticleAction = findAction(await adminHtml(articlePath), 'id="article-title"', articlePath);
+  assert.match((await act(saveArticleAction, { ...fields, id: article.id, version: article.version, status: "PUBLISHED" })).headers.get("location"), /success=1/);
+  article = await db.article.findUniqueOrThrow({ where: { slug: articleSlug } });
+  assert.equal(article.version, 2);
+  assert.equal(article.status, "PUBLISHED");
+  assert.ok(article.publishedAt);
+  const publicArticle = await (await fetch(`${origin}/articles/${articleSlug}`)).text();
+  assert.match(publicArticle, /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  assert.match(publicArticle, /&lt;script&gt;/);
+  assert.doesNotMatch(publicArticle, /<script>contenu non exécuté<\/script>/);
+  assert.match(publicArticle, new RegExp(mediaRoute));
+  assert.match((await act(deleteMediaAction, { id: mediaId, confirm: "on" })).headers.get("location"), /error=operation/);
+  assert.equal((await db.media.findUniqueOrThrow({ where: { id: mediaId } })).deleting, false, "a linked file cannot enter deletion");
+  assert.equal((await fetch(`${origin}${mediaRoute}`)).status, 503, "a published relation reaches the private store, whose token is deliberately absent in isolated tests");
+  assert.match(await (await fetch(`${origin}/articles?categorie=${categorySlug}`)).text(), /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  assert.doesNotMatch(await (await fetch(`${origin}/articles?categorie=aucune-categorie`)).text(), /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  assert.match((await act(saveArticleAction, { ...fields, id: article.id, version: 1, title: "Ne doit pas écraser le texte" })).headers.get("location"), /error=operation/);
+  assert.equal((await db.article.findUniqueOrThrow({ where: { id: article.id } })).title, fields.title);
+  const mediaHtml = await adminHtml("/admin/medias");
+  assert.match((await act(findAction(mediaHtml, `id="title-${mediaId}"`, "/admin/medias"), { id: mediaId, title: "Média renommé", alt: "Texte accessible", caption: "Crédit de test" })).headers.get("location"), /success=1/);
+  assert.equal((await db.media.findUniqueOrThrow({ where: { id: mediaId } })).alt, "Texte accessible");
+  assert.match((await act(saveArticleAction, { ...fields, id: article.id, version: article.version, excerpt: "Résumé modifié après publication.", status: "DRAFT" })).headers.get("location"), /success=1/);
+  assert.equal((await db.article.findUniqueOrThrow({ where: { id: article.id } })).excerpt, "Résumé modifié après publication.");
+  assert.doesNotMatch(await (await fetch(`${origin}/articles/${articleSlug}`)).text(), /ARTICLE_SYNTHETIQUE_CONFIDENTIEL/);
+  const privateMedia = await fetch(`${origin}${mediaRoute}`);
+  assert.equal(privateMedia.status, 404, "unpublishing revokes anonymous access before contacting Blob");
+  assert.match(privateMedia.headers.get("cache-control"), /no-store/);
+  article = await db.article.findUniqueOrThrow({ where: { id: article.id } });
+  const editorHtml = await adminHtml(articlePath);
+  assert.match((await act(findAction(editorHtml, "Supprimer définitivement", articlePath), { id: article.id, version: article.version, confirm: "on" })).headers.get("location"), /success=1/);
+  assert.equal(await db.articleMedia.count({ where: { articleId: article.id } }), 0);
+  assert.equal(await db.media.count({ where: { id: mediaId } }), 1, "article deletion preserves library files");
+  assert.match((await act(deleteMediaAction, { id: mediaId, confirm: "on" })).headers.get("location"), /error=operation/);
+  assert.equal((await db.media.findUniqueOrThrow({ where: { id: mediaId } })).deleting, true, "a cloud deletion failure remains explicitly retryable");
+  assert.match(await adminHtml("/admin/medias"), /Réessayer la suppression/);
+  assert.match((await act(deleteCategoryAction, { id: category.id, confirm: "on" })).headers.get("location"), /success=1/);
+  assert.equal(await db.category.count({ where: { id: category.id } }), 0);
+  assert.ok(await db.auditLog.count({ where: { actorId: firstId, action: "ARTICLE_DELETE" } }));
   const createAccount = await act(findAction(dashboard, 'id="new-email"'), { email: secondEmail, password });
   assert.equal(createAccount.status, 303);
   assert.match(createAccount.headers.get("location"), /success=1/);
   const secondUser = await db.user.findUniqueOrThrow({ where: { email: secondEmail } });
-  const refreshedDashboard = await (await fetch(`${origin}/admin`, { headers: { Cookie: cookie } })).text();
+  const refreshedDashboard = await (await fetch(`${origin}/admin/sondage`, { headers: { Cookie: cookie } })).text();
   const secondForm = [...refreshedDashboard.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/g)].map((match) => match[1]).find((form) => form.includes(`value="${secondUser.id}"`) && form.includes('name="operation"'));
   const updateAccountAction = secondForm?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
   assert.ok(updateAccountAction);
@@ -154,7 +243,7 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.equal(stored.judgeNames, value.judgeNames);
   const before = await (await fetch(`${origin}/statistiques`)).text();
   assert.doesNotMatch(before, /JUGE_SYNTHETIQUE_PRIVE|SOCIAL_SYNTHETIQUE_PRIVE|LIBELLE_DECLARE_PRIVE/);
-  const privateDashboard = await (await fetch(`${origin}/admin`, { headers: { Cookie: cookie } })).text();
+  const privateDashboard = await (await fetch(`${origin}/admin/sondage`, { headers: { Cookie: cookie } })).text();
   assert.match(privateDashboard, /JUGE_SYNTHETIQUE_PRIVE/);
   assert.doesNotMatch(privateDashboard, new RegExp(stored.deletionHash));
   const moderationForm = [...privateDashboard.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/g)].map((match) => match[1]).find((form) => form.includes(`value="${stored.id}"`) && form.includes('name="decision"'));
@@ -169,11 +258,11 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
     data.set("jurisdictionId", "");
     return data;
   }
-  const unauthorizedAction = await fetch(`${origin}/admin`, { method: "POST", headers: { Origin: origin }, body: moderationData("APPROVED"), redirect: "manual" });
+  const unauthorizedAction = await fetch(`${origin}/admin/sondage`, { method: "POST", headers: { Origin: origin }, body: moderationData("APPROVED"), redirect: "manual" });
   assert.equal(unauthorizedAction.status, 303);
   assert.match(unauthorizedAction.headers.get("location"), /\/admin\/connexion/);
   assert.equal((await db.surveyResponse.findUniqueOrThrow({ where: { id: stored.id } })).status, "PENDING");
-  const approvedAction = await fetch(`${origin}/admin`, { method: "POST", headers: { Origin: origin, Cookie: cookie }, body: moderationData("APPROVED"), redirect: "manual" });
+  const approvedAction = await fetch(`${origin}/admin/sondage`, { method: "POST", headers: { Origin: origin, Cookie: cookie }, body: moderationData("APPROVED"), redirect: "manual" });
   assert.equal(approvedAction.status, 303);
   assert.match(approvedAction.headers.get("location"), /success=1/);
   const moderated = await db.surveyResponse.findUniqueOrThrow({ where: { id: stored.id } });

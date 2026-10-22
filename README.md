@@ -35,9 +35,29 @@ Renseigner temporairement `BOOTSTRAP_ADMIN_EMAIL` et `BOOTSTRAP_ADMIN_PASSWORD` 
 npm run admin:bootstrap
 ```
 
-Cette commande refuse de fonctionner dès qu’un compte existe et utilise un verrou transactionnel pour éviter deux initialisations concurrentes. Elle n’affiche jamais le mot de passe. Retirer ensuite ces deux variables ; ne pas les ajouter à Vercel.
+Cette commande accepte également les variables injectées par l’environnement sans fichier `.env`. Elle refuse de fonctionner dès qu’un compte existe et utilise un verrou transactionnel pour éviter deux initialisations concurrentes. Elle n’affiche jamais le mot de passe. Retirer ensuite ces deux variables ; ne pas les ajouter à Vercel.
 
-Les administrateurs créent d’autres administrateurs dans l’espace privé, peuvent les désactiver/réactiver, réinitialiser leurs mots de passe et changer leur propre mot de passe après vérification du précédent. La réinitialisation et la désactivation révoquent les sessions du compte. Il n’existe ni inscription publique ni récupération automatique par courriel : conserver au moins deux comptes habilités et un accès d’exploitation sécurisé à la base.
+Se connecter ensuite sur `/admin/connexion` avec **l’adresse e-mail et le mot de passe choisis ci-dessus**. Il n’existe aucun identifiant ou mot de passe par défaut. En local : `http://localhost:3000/admin`. En production : `https://votre-site.fr/admin`.
+
+Les administrateurs créent d’autres administrateurs dans la section **Sondage & comptes**, peuvent les désactiver/réactiver, réinitialiser leurs mots de passe et changer leur propre mot de passe après vérification du précédent. La réinitialisation et la désactivation révoquent les sessions du compte. Il n’existe ni inscription publique ni récupération automatique par courriel : conserver au moins deux comptes habilités et un accès d’exploitation sécurisé à la base.
+
+### Tableau de bord et journal
+
+- `/admin` : accueil personnalisé, nombre de brouillons/articles publiés/médias/réponses à modérer, derniers articles et raccourcis.
+- `/admin/categories` : créer, renommer et supprimer les catégories. Une catégorie utilisée ne peut pas être supprimée : réaffecter ses articles d’abord.
+- `/admin/articles` : recherche par titre, filtres catégorie/statut et pagination. L’éditeur simple propose titre, adresse publique, résumé, paragraphes, catégorie et jusqu’à 20 médias associés.
+- **Enregistrer en brouillon / dépublier** retire l’article du journal ; **Enregistrer et publier** rend le texte et ses médias associés accessibles. La suppression d’article demande confirmation et conserve les fichiers dans la médiathèque. Les modifications concurrentes sont refusées plutôt que d’écraser un travail plus récent.
+- `/admin/medias` : importer des images **JPEG, PNG, WebP** et des **PDF**, de **4 Mio maximum** (4 194 304 octets), modifier titre/description accessible/légende, voir les articles liés et supprimer les fichiers inutilisés. Pas de SVG, HTML ou éditeur HTML. La vérification de signature ne remplace pas un antivirus ni une revue du document.
+- `/admin/sondage` : modération, juridictions, publication statistique, pétition, comptes et journal d’audit.
+- `/articles` et `/articles/[slug]` : journal public par catégorie ; seuls les articles publiés sont accessibles. Le récit initial de l’accueil reste indépendant du journal.
+
+Pour la médiathèque, créer un **store Vercel Blob privé** et définir son `BLOB_READ_WRITE_TOKEN` dans les variables serveur (et dans `.env` pour les imports locaux). Ne jamais utiliser `NEXT_PUBLIC_` pour ce secret, ni un store public. Sans token, l’interface signale la configuration manquante, sans simuler un import réussi.
+
+Les fichiers sont servis via `/medias/[id]`, sans exposer le chemin Blob au navigateur. Chaque demande vérifie une session administrateur active ou l’association actuelle à au moins un article publié ; les réponses ne sont pas mises en cache. Dépublier tous les articles qui utilisent un média retire donc les **futurs accès anonymes**. Une copie déjà téléchargée ne peut pas être révoquée. Les PDF sont téléchargés comme pièces jointes. Retirer les métadonnées personnelles des images avant import, vérifier les droits et anonymiser tout document ; aucun document judiciaire confidentiel ni identité de mineur ne doit être publié.
+
+Un média lié ne peut pas être supprimé ; le détacher de tous ses articles d’abord. Si le stockage est indisponible pendant une suppression, le fichier est marqué en cours de suppression et la médiathèque propose de réessayer. Ne pas supprimer manuellement ses lignes en base. En cas d’échec de nettoyage après un import non confirmé, l’erreur `media-upload-orphan-cleanup` est journalisée : contrôler les fichiers orphelins dans le store privé.
+
+La migration additive `20261022060000_editorial` doit être appliquée avant cette version avec `npm run db:migrate`. Aucun compte administrateur n’est créé par la migration.
 
 ## Déploiement Vercel + Neon
 
@@ -51,7 +71,8 @@ Les administrateurs créent d’autres administrateurs dans l’espace privé, p
    - `SITE_ORIGIN` : origine publique exacte, par exemple `https://votre-site.fr`, sans barre finale ;
    - `BETTER_AUTH_URL` : même origine ;
    - `BETTER_AUTH_SECRET` : secret aléatoire, stable, au moins 32 caractères ;
-   - `CRON_SECRET` : secret aléatoire distinct, au moins 32 caractères.
+   - `CRON_SECRET` : secret aléatoire distinct, au moins 32 caractères ;
+   - `BLOB_READ_WRITE_TOKEN` : token du store Vercel Blob **privé** pour la médiathèque.
 5. Appliquer `npm run db:migrate` **depuis un environnement d’exploitation sécurisé**, avec `DIRECT_URL` de la base cible, avant le déploiement de la nouvelle version. Les migrations sont versionnées. Elles ne sont pas exécutées automatiquement par les builds Preview.
 6. Le build Vercel exécute `npm run build` (génération Prisma puis compilation Next.js). Le `postinstall` génère également le client Prisma.
 7. Exécuter une fois le bootstrap depuis un environnement sécurisé connecté à la bonne base, sans exposer les variables de bootstrap au déploiement.

@@ -1,0 +1,57 @@
+import { Suspense } from "react";
+import Link from "next/link";
+import { connection } from "next/server";
+import { requireAdmin } from "@/lib/admin";
+import { database } from "@/lib/db";
+import { aseOptions, optionLabel, residenceOptions } from "@/lib/survey";
+import { addAdministrator, addJurisdiction, changeOwnPassword, moderate, saveSettings, updateAdministrator, updateJurisdiction } from "../actions";
+import { LogoutButton } from "../logout-button";
+
+type Query = Promise<{ status?: string; page?: string; success?: string; error?: string }>;
+const labels = { PENDING: "À modérer", APPROVED: "Approuvée", REJECTED: "Rejetée" };
+
+async function Dashboard({ searchParams }: { searchParams: Query }) {
+  await connection();
+  const actor = await requireAdmin();
+  const query = await searchParams;
+  const status: "APPROVED" | "REJECTED" | "PENDING" = query.status === "APPROVED" || query.status === "REJECTED" ? query.status : "PENDING";
+  const page = Math.max(1, Math.min(10000, Number.parseInt(query.page || "1", 10) || 1));
+  const db = database();
+  const where = { status, expiresAt: { gt: new Date() } };
+  const [responses, total, jurisdictions, settings, users, logs] = await Promise.all([
+    db.surveyResponse.findMany({
+      where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 25, take: 25,
+      select: { id: true, residence: true, ase: true, judgeNames: true, socialWorkerNames: true, jurisdictionReported: true, jurisdictionId: true, createdAt: true, status: true },
+    }),
+    db.surveyResponse.count({ where }),
+    db.jurisdiction.findMany({ orderBy: { name: "asc" } }),
+    db.siteSettings.findUnique({ where: { id: 1 } }),
+    db.user.findMany({ select: { id: true, email: true, active: true }, orderBy: { createdAt: "asc" } }),
+    db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
+  ]);
+  return <>
+    <div className="admin-heading"><div><p className="eyebrow">MODÉRATION & PUBLICATION</p><h1>Une parole à traiter<br /><em>avec discernement.</em></h1><p>Connecté : {actor.email}</p></div><LogoutButton /></div>
+    {query.error && <p role="alert" className="form-error">{query.error === "input" ? "Les valeurs saisies ne sont pas valides. Aucun changement n’a été appliqué." : "L’opération a échoué. Vérifiez la connexion, les doublons et les valeurs saisies. Aucun succès ne peut être confirmé."}</p>}
+    {query.success && <p role="status" className="deletion-success">L’opération a été enregistrée.</p>}
+    <div className="notice"><strong>Données nominatives confidentielles.</strong><p>Les noms sont des déclarations non vérifiées. Ne les copiez pas dans les libellés publics de juridictions. Approuver une réponse autorise son comptage, sans établir une faute ou un placement abusif. Ne publiez aucun document de procédure, identité de mineur ou classement de professionnels.</p><p><Link href="/statistiques">Voir les statistiques publiques →</Link></p></div>
+    <section className="admin-section"><div className="admin-tabs">{Object.entries(labels).map(([key, label]) => <Link key={key} href={`/admin/sondage?status=${key}`} aria-current={key === status ? "page" : undefined}>{label}</Link>)}</div><h2>{total} réponse(s) · {labels[status]}</h2>
+      {!responses.length && <p>Aucune réponse dans cette catégorie.</p>}
+      <div className="admin-responses">{responses.map((response) => <article key={response.id} className="admin-response">
+        <p className="eyebrow">{response.createdAt.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })} · {labels[response.status]}</p>
+        <dl><div><dt>Résidence</dt><dd>{optionLabel(residenceOptions, response.residence)}</dd></div><div><dt>ASE</dt><dd>{optionLabel(aseOptions, response.ase)}</dd></div><div><dt>Juges — privé</dt><dd>{response.judgeNames || "Non renseigné"}</dd></div><div><dt>Intervenants sociaux — privé</dt><dd>{response.socialWorkerNames || "Non renseigné"}</dd></div><div><dt>Juridiction déclarée — privé</dt><dd>{response.jurisdictionReported || "Non renseignée"}</dd></div></dl>
+        <form action={moderate}><input type="hidden" name="id" value={response.id} /><label className="field-label" htmlFor={`jurisdiction-${response.id}`}>Juridiction institutionnelle vérifiée pour le comptage public</label><select id={`jurisdiction-${response.id}`} name="jurisdictionId" defaultValue={response.jurisdictionId || ""}><option value="">Non rattachée — aucun comptage par juridiction</option>{jurisdictions.map((jurisdiction) => <option key={jurisdiction.id} value={jurisdiction.id}>{jurisdiction.name}</option>)}</select><div className="admin-buttons"><button name="decision" value="APPROVED" className="button button-small">Approuver / mettre à jour</button><button name="decision" value="REJECTED" className="button button-small">Rejeter</button><button name="decision" value="PENDING" className="button button-small">Remettre en attente</button></div><details><summary>Suppression définitive</summary><p>Cette action retire immédiatement la réponse des comptages actifs.</p><button name="decision" value="DELETE" className="button button-small button-primary">Confirmer la suppression définitive</button></details></form>
+      </article>)}</div>
+      <nav className="admin-pagination" aria-label="Pagination des réponses">{page > 1 && <Link href={`/admin/sondage?status=${status}&page=${page - 1}`}>← Précédent</Link>}<span>Page {page}</span>{page * 25 < total && <Link href={`/admin/sondage?status=${status}&page=${page + 1}`}>Suivant →</Link>}</nav>
+    </section>
+    <section className="admin-section"><h2>Référentiel des juridictions</h2><p>Ajoutez uniquement un nom officiel de tribunal ou de cour. Il sera potentiellement public à partir de dix réponses approuvées. Vérifiez le libellé dans l’<a href="https://www.justice.fr/annuaire" target="_blank" rel="noopener noreferrer">annuaire de la justice (nouvel onglet)</a>.</p><form action={addJurisdiction} className="admin-inline-form"><label className="field-label" htmlFor="jurisdiction-name">Nom institutionnel, sans personne physique</label><input id="jurisdiction-name" name="name" minLength={5} maxLength={200} required placeholder="Tribunal judiciaire de …" /><button className="button button-small">Ajouter une juridiction</button></form><div className="admin-users">{jurisdictions.map((jurisdiction) => <details key={jurisdiction.id}><summary>{jurisdiction.name} — gérer</summary><form action={updateJurisdiction}><input type="hidden" name="id" value={jurisdiction.id} /><label className="field-label" htmlFor={`rename-${jurisdiction.id}`}>Libellé institutionnel</label><input id={`rename-${jurisdiction.id}`} name="name" defaultValue={jurisdiction.name} minLength={5} maxLength={200} required /><button className="button button-small" name="operation" value="RENAME">Renommer</button><details><summary>Supprimer du référentiel</summary><p>Les contributions restent conservées, mais perdent leur rattachement public à cette juridiction.</p><button className="button button-small button-primary" name="operation" value="DELETE">Confirmer la suppression du rattachement</button></details></form></details>)}</div></section>
+    <section className="admin-section"><h2>Publication & pétition</h2><form action={saveSettings}><label className="consent-label"><input type="checkbox" name="statsPublished" defaultChecked={settings?.statsPublished || false} /><span>Ouvrir les statistiques publiques (seuil fixe : dix réponses approuvées par groupe).</span></label><label className="field-label" htmlFor="petition-title">Titre de la mobilisation</label><input id="petition-title" name="petitionTitle" minLength={5} maxLength={200} required defaultValue={settings?.petitionTitle || "Préserver les liens, faire évoluer la protection de l’enfance"} /><label className="field-label" htmlFor="petition-url">Lien HTTPS de la pétition — facultatif</label><input id="petition-url" type="url" name="petitionUrl" maxLength={1000} defaultValue={settings?.petitionUrl || ""} placeholder="https://…" /><p className="field-help">Laisser vide conserve la mention « en préparation ». Aucun sondage n’est une signature de pétition.</p><button className="button button-primary">Enregistrer la publication</button></form></section>
+    <section className="admin-section"><h2>Comptes administrateurs</h2><p>Communiquez les mots de passe par un canal sécurisé distinct. Les mots de passe sont hachés par Better Auth ; aucune inscription publique. Vous ne pouvez pas désactiver votre propre compte.</p><form action={addAdministrator}><label className="field-label" htmlFor="new-email">E-mail du nouvel administrateur</label><input id="new-email" name="email" type="email" maxLength={254} autoComplete="off" required /><label className="field-label" htmlFor="new-password">Mot de passe de 16 à 128 caractères</label><input id="new-password" name="password" type="password" autoComplete="new-password" minLength={16} maxLength={128} required /><button className="button button-primary">Créer le compte administrateur</button></form>
+      <div className="admin-users">{users.map((user) => <div key={user.id}><strong>{user.email}</strong><span> · {user.active ? "Actif" : "Désactivé"}{user.id === actor.id ? " · Votre compte" : ""}</span>{user.id !== actor.id && <><form action={updateAdministrator}><input type="hidden" name="id" value={user.id} /><button className="button button-small" name="operation" value={user.active ? "DISABLE" : "ENABLE"}>{user.active ? "Désactiver et révoquer les sessions" : "Réactiver"}</button></form><details><summary>Réinitialiser son mot de passe</summary><form action={updateAdministrator}><input type="hidden" name="id" value={user.id} /><label className="field-label" htmlFor={`password-${user.id}`}>Nouveau mot de passe (sessions révoquées)</label><input id={`password-${user.id}`} name="password" type="password" minLength={16} maxLength={128} autoComplete="new-password" required /><button className="button button-small" name="operation" value="PASSWORD">Réinitialiser</button></form></details></>}</div>)}</div></section>
+    <section className="admin-section"><h2>Changer mon mot de passe</h2><form action={changeOwnPassword}><label className="field-label" htmlFor="own-current-password">Mot de passe actuel</label><input id="own-current-password" name="currentPassword" type="password" maxLength={128} autoComplete="current-password" required /><label className="field-label" htmlFor="own-new-password">Nouveau mot de passe de 16 à 128 caractères</label><input id="own-new-password" name="password" type="password" minLength={16} maxLength={128} autoComplete="new-password" required /><p className="field-help">Toutes vos sessions seront révoquées. Reconnectez-vous avec le nouveau mot de passe.</p><button className="button button-primary">Changer mon mot de passe et me déconnecter</button></form></section>
+    <section className="admin-section"><h2>Journal des 20 dernières opérations</h2><p>Aucun nom de professionnel, mot de passe ou code de suppression n’est inscrit dans ce journal.</p><ul className="audit-list">{logs.map((log) => <li key={log.id}>{log.createdAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris" })} · {log.action} · compte {log.actorId || "initialisation"}</li>)}</ul></section>
+  </>;
+}
+
+export default function AdminPage({ searchParams }: { searchParams: Query }) {
+  return <Suspense fallback={<p role="status">Vérification de votre accès…</p>}><Dashboard searchParams={searchParams} /></Suspense>;
+}

@@ -13,9 +13,10 @@
     "survey:prune": "node --env-file=.env --experimental-strip-types scripts/prune-survey.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
-    "admin:bootstrap": "node --env-file=.env --experimental-strip-types scripts/bootstrap-admin.mjs"
+    "admin:bootstrap": "node --env-file-if-exists=.env --experimental-strip-types scripts/bootstrap-admin.mjs"
   },
   "dependencies": {
+    "@vercel/blob": "2.8.2",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "better-auth": "1.7.12",
