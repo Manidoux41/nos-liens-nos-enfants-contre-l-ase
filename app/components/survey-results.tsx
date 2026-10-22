@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { publicStatistics } from "@/lib/public-statistics";
 import { logFailure } from "@/lib/request-security";
 import { StatisticsChart, type ChartState } from "./statistics-chart";
+import { RefreshResults } from "./refresh-results";
 
 export async function SurveyResults({ compact = false }: { compact?: boolean }) {
   await connection();
@@ -14,7 +15,8 @@ export async function SurveyResults({ compact = false }: { compact?: boolean }) 
   } catch (error) { logFailure("public-statistics", error); }
   return <div className="survey-results">
     {state === "unavailable" && <p role="alert" className="form-error">Les statistiques sont momentanément indisponibles. Aucun chiffre ne peut être affiché ; réessayez plus tard. Les cadres ci-dessous présentent les vues prévues, sans données inventées.</p>}
-    {state === "closed" && <p className="notice">La publication des statistiques n’est pas encore ouverte. Les réponses restent privées et soumises à modération. Les différentes vues sont déjà disponibles ci-dessous.</p>}
+    {state === "closed" && <div className="notice"><p>La publication des statistiques n’est pas encore ouverte. Les réponses restent privées et soumises à modération. Il ne s’agit pas d’une panne de lecture.</p><p>Un administrateur doit activer « Ouvrir les statistiques publiques » dans <Link className="text-link" href="/admin/sondage">Sondage & réglages</Link>. Chaque groupe doit ensuite compter au moins dix réponses approuvées et non expirées pour apparaître.</p></div>}
+    <RefreshResults unavailable={state === "unavailable"} />
     <div className="statistics-grid">
       <StatisticsChart state={state} title="Département de l’ASE" description="Les départements de rattachement déclarés, indépendamment du lieu de résidence." values={data?.ase || []} />
       <StatisticsChart state={state} title="Année du premier placement" description="Depuis quand les familles participantes sont-elles concernées ? Année du premier placement parmi leurs enfants." kind="years" values={data?.years || []} />

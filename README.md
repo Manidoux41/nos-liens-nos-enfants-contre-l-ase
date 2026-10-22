@@ -182,4 +182,6 @@ Pour publier des résultats réels : dans `/admin/sondage`, activer « Ouvrir le
 
 Si la production affiche « statistiques momentanément indisponibles », ce n’est pas l’état normal d’une collecte vide ou fermée. Vérifier les **variables Vercel Production**, la base effectivement ciblée, les migrations et les logs de la fonction. Une connexion locale réussie ne prouve pas que Vercel utilise cette même configuration. Ne pas publier de valeurs fictives ni désactiver les contrôles pour masquer cette erreur. Les cadres graphiques restent visibles avec une erreur explicite.
 
+Le bouton « Réessayer la lecture des résultats » relance la lecture serveur après une panne ; « Actualiser les résultats » recharge les données et l’état de publication sans perdre les réponses en cours de saisie sur l’accueil. Une lecture réussie remplace l’ancienne erreur. Le message « publication non ouverte » indique une lecture réussie, pas une panne : l’administration doit explicitement activer la publication et approuver les contributions. Ni l’actualisation ni le passage au tableau ne contournent ces contrôles ou le seuil de dix.
+
 Le plan `.tsupgrader/runtime-validation/eval-plan.json` rejoue build, lint, tests unitaires et sondes HTTP. Le test PostgreSQL demande une base isolée et s’exécute séparément.

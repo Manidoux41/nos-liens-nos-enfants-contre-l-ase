@@ -89,6 +89,9 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
   assert.match(html, /Retour des enfants au foyer/);
   assert.match(html, /En attente de résultats publiables/);
   assert.match(html, /Tableau accessible/);
+  assert.match(html, /Actualiser les résultats/);
+  assert.match(html, /Il ne s’agit pas d’une panne de lecture/);
+  assert.match(html, /Ouvrir les statistiques publiques/);
   assert.doesNotMatch(html, /Noah|Izaach|Lory|Loukas|Illyana|Cabecinha|Boché|Wanza/);
   const loginHtml = await (await fetch(`${origin}/admin/connexion`)).text();
   const loginFormTag = loginHtml.match(/<form\b[^>]*>/)?.[0];
@@ -368,6 +371,7 @@ test("PostgreSQL + HTTP : authentification, confidentialité, modération, seuil
     assert.match(unavailable, /Année du premier placement/);
     assert.match(unavailable, /Retour des enfants au foyer/);
     assert.match(unavailable, /Lecture impossible/);
+    assert.match(unavailable, /Réessayer la lecture des résultats/);
     assert.doesNotMatch(unavailable, /stroke-dasharray=/, "no fake chart values during an outage");
   }
 });
